@@ -1,8 +1,6 @@
 import { navigate } from '../router.js'
 import { toast } from '../main.js'
 import { BASE } from '../api.js'
-import { navigate } from '../router.js'
-import { toast } from '../main.js'
 
 export const renderLogin = () => {
   document.getElementById('main').innerHTML = `

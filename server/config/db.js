@@ -16,9 +16,10 @@ const connectDB = async () => {
       heartbeatFrequencyMS: 10000
     });
     console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
-  } catch (error) {
+ } catch (error) {
     console.error(`❌ MongoDB Error: ${error.message}`);
-    process.exit(1);
+    console.error('⚠️  Server will keep running, but anything touching the database will fail until this is fixed.');
+    console.error('⚠️  Common cause: your current IP is not in MongoDB Atlas → Network Access → IP Access List (add 0.0.0.0/0 if deploying to Vercel/Netlify/Render, since they don\'t use a fixed IP).');
   }
 
   mongoose.connection.on('error', (err) => {

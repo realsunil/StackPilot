@@ -2,7 +2,7 @@
 // at wherever the StackPilot backend is deployed (e.g. by the person
 // running their own instance). Defaults to a relative '/api' for local
 // dev, where Vite proxies it to the backend.
-const BASE = import.meta.env.VITE_API_URL || 'https://stackpilot-9qch.onrender.com/api'
+export const BASE = import.meta.env.VITE_API_URL || 'https://stackpilot-9qch.onrender.com/api'
 
 const req = async (method, url, data = null, isForm = false) => {
   const token = localStorage.getItem('token')

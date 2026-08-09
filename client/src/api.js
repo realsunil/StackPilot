@@ -7,7 +7,6 @@ export const BASE = import.meta.env.VITE_API_URL || 'https://stackpilot-9qch.onr
 const req = async (method, url, data = null, isForm = false) => {
   const token = localStorage.getItem('token')
   const headers = isForm ? {} : { 'Content-Type': 'application/json' }
-
   if (token) headers['Authorization'] = `Bearer ${token}`
 
   const opts = {
@@ -17,7 +16,6 @@ const req = async (method, url, data = null, isForm = false) => {
   }
 
   const res = await fetch(BASE + url, opts)
-
   let json
   try {
     json = await res.json()

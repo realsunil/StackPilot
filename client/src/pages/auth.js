@@ -1,5 +1,8 @@
 import { navigate } from '../router.js'
 import { toast } from '../main.js'
+import { BASE } from '../api.js'
+import { navigate } from '../router.js'
+import { toast } from '../main.js'
 
 export const renderLogin = () => {
   document.getElementById('main').innerHTML = `
@@ -34,7 +37,7 @@ export const renderLogin = () => {
     if (!email || !password) return toast.error('Fill all fields')
     
     try {
-      const res = await fetch('/api/auth/login', {
+      const res = await fetch(`${BASE}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })
@@ -97,7 +100,7 @@ export const renderRegister = () => {
     if (!name || !email || !password) return toast.error('Fill all fields')
     
     try {
-      const res = await fetch('/api/auth/register', {
+      const res = await fetch(`${BASE}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, email, password })

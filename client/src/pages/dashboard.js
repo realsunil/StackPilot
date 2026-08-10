@@ -113,12 +113,12 @@ const cardHtml = (p, state) => {
   const connected = state?.connected
   return `
     <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--rl);padding:20px 22px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
-      <div style="font-size:1.8rem;width:44px;text-align:center">${p.icon}</div>
-      <div style="flex:1;min-width:200px">
-        <div style="display:flex;align-items:center;gap:10px">
+      <div style="font-size:1.8rem;width:44px;text-align:center;flex-shrink:0">${p.icon}</div>
+      <div style="flex:1 1 200px;min-width:0">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
           <strong style="font-size:1.02rem">${p.name}</strong>
           ${connected
-            ? `<span class="status-badge s-deployed" style="padding:2px 10px;font-size:0.72rem">✅ Connected${state.accountName ? ' · ' + escapeHtml(state.accountName) : ''}</span>`
+            ? `<span class="status-badge s-deployed" style="padding:2px 10px;font-size:0.72rem;max-width:100%;overflow-wrap:break-word">✅ Connected${state.accountName ? ' · ' + escapeHtml(state.accountName) : ''}</span>`
             : `<span class="status-badge s-pending" style="padding:2px 10px;font-size:0.72rem">Not connected</span>`}
         </div>
         <p style="color:var(--text2);font-size:0.82rem;margin-top:4px">${p.blurb}</p>
@@ -128,14 +128,14 @@ const cardHtml = (p, state) => {
           </p>
         ` : ''}
       </div>
-      <div style="display:flex;flex-direction:column;gap:8px;align-items:stretch;min-width:180px">
+      <div style="display:flex;flex-direction:column;gap:8px;align-items:stretch;flex:1 1 180px;min-width:0;max-width:100%">
         ${connected
           ? `<button class="btn btn-danger btn-sm" id="disconnect-${p.id}">Disconnect</button>`
           : (p.oauth
               ? `<button class="btn btn-primary btn-sm" id="login-${p.id}">${p.icon} Login with ${p.name}</button>`
               : `
-                <div style="display:flex;gap:8px">
-                  <input class="inp" id="renderKeyInput" placeholder="Render API key" style="padding:8px 10px;font-size:0.82rem">
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                  <input class="inp" id="renderKeyInput" placeholder="Render API key" style="padding:8px 10px;font-size:0.82rem;flex:1 1 120px;min-width:0">
                   <button class="btn btn-primary btn-sm" id="connectRenderBtn">Connect</button>
                 </div>
                 <a href="https://dashboard.render.com/u/settings#api-keys" target="_blank" rel="noopener" style="color:var(--blue);font-size:0.74rem">Get a free key →</a>

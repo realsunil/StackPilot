@@ -7,7 +7,7 @@ export const renderHome = () => {
       <h1>Upload. Detect.<br><span class="grad-text">Deploy Instantly.</span></h1>
       <p>Drop your ZIP or paste a GitHub URL. StackPilot auto-detects your stack and deploys to the best platform.</p>
       <button class="btn btn-primary" id="startBtn" style="font-size:1rem;padding:16px 36px">
-        🚀 Start Deploying
+         Start Deploying
       </button>
     </section>
 

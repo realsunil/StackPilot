@@ -70,7 +70,7 @@ const renderDeployForm = () => {
       <button class="btn btn-primary btn-full" id="deployBtn" 
         style="padding:17px;font-size:1rem" 
         ${isDeployDisabled() ? 'disabled' : ''}>
-        🚀 Deploy Now
+         Deploy Now
       </button>
     </div>
   `
@@ -145,7 +145,7 @@ const renderDeployStatus = () => {
       ${(state.status === 'deployed' || state.status === 'failed') ? `
         <div style="text-align:center;margin-top:28px">
           <button class="btn btn-secondary" id="newDeployBtn">
-            🚀 Deploy Another Project
+             Deploy Another Project
           </button>
         </div>
       ` : ''}

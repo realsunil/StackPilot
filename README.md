@@ -1,4 +1,4 @@
-# 🚀 StackPilot
+#  StackPilot
 
 Upload a ZIP or paste a GitHub URL → StackPilot detects the framework and deploys it
 to Vercel, Netlify, or Render.

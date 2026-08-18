@@ -5,7 +5,7 @@ import { BASE } from '../api.js'
 export const renderLogin = () => {
   document.getElementById('main').innerHTML = `
     <div style="max-width:400px;margin:80px auto;padding:40px;background:var(--card);border:1px solid var(--border);border-radius:var(--rl)">
-      <h2 style="text-align:center;margin-bottom:30px">🚀 Login to StackPilot</h2>
+      <h2 style="text-align:center;margin-bottom:30px"> Login to StackPilot</h2>
       
       <div class="input-grp">
         <label>Email</label>

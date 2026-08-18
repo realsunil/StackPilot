@@ -34,7 +34,7 @@ const loadProjects = async () => {
           <div class="empty-icon">📁</div>
           <h3>No projects yet</h3>
           <p>Deploy your first project to see it here</p>
-          <button class="btn btn-primary" id="goDeployBtn">🚀 Deploy Now</button>
+          <button class="btn btn-primary" id="goDeployBtn"> Deploy Now</button>
         </div>
       `
       document.getElementById('goDeployBtn')?.addEventListener('click', () => navigate('/deploy'))

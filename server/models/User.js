@@ -47,7 +47,12 @@ const userSchema = new mongoose.Schema({
   deployCount: { type: Number, default: 0 },
   maxDeploys: { type: Number, default: 10 }, // Free tier limit
   plan: { type: String, enum: ['free', 'pro'], default: 'free' },
-  
+
+  // Admin panel support
+  isAdmin: { type: Boolean, default: false },
+  lastLogin: { type: Date, default: null },
+  loginCount: { type: Number, default: 0 },
+
   createdAt: { type: Date, default: Date.now }
 });
 

@@ -44,6 +44,9 @@ export const api = {
   getMe: () => req('GET', '/auth/me'),
   updateTokens: (tokens) => req('PUT', '/auth/tokens', tokens),
 
+  // Admin panel
+  getAdminUsers: () => req('GET', '/admin/users'),
+
   // Connected deployment platforms (dashboard)
   getConnections: () => req('GET', '/auth/connections'),
   // Vercel/Netlify are full-page OAuth redirects, not fetch calls -

@@ -3,6 +3,7 @@ import { renderDeploy } from './pages/deploy.js'
 import { renderProjects, renderProjectDetail } from './pages/projects.js'
 import { renderLogin, renderRegister } from './pages/auth.js'
 import { renderDashboard } from './pages/dashboard.js'
+import { renderAdmin } from './pages/admin.js'
 
 const routes = {
   '/': renderHome,
@@ -12,10 +13,11 @@ const routes = {
   '/register': renderRegister,
   '/dashboard': renderDashboard,
   '/settings': renderDashboard, // old link, kept working
+  '/admin': renderAdmin,
 }
 
 // Routes that require the user to be logged in
-const protectedRoutes = ['/deploy', '/projects', '/dashboard', '/settings']
+const protectedRoutes = ['/deploy', '/projects', '/dashboard', '/settings', '/admin']
 
 export const navigate = (path) => {
   window.history.pushState({}, '', path)

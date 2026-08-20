@@ -40,6 +40,14 @@ exports.attachTokens = async (req, res, next) => {
   }
 };
 
+// Gate the admin panel routes. Must run AFTER protect (needs req.user).
+exports.adminOnly = (req, res, next) => {
+  if (!req.user || !req.user.isAdmin) {
+    return res.status(403).json({ success: false, message: 'Admin access only' });
+  }
+  next();
+};
+
 exports.checkDeployLimit = async (req, res, next) => {
   if (req.user.plan === 'free' && req.user.deployCount >= req.user.maxDeploys) {
     return res.status(403).json({

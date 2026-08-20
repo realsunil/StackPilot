@@ -85,6 +85,7 @@ app.get('/api/health', (req, res) => {
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/projects', require('./routes/projectRoutes'));
 app.use('/api/deploy', require('./routes/deployRoutes'));
+app.use('/api/admin', require('./routes/adminRoutes'));
 
 // 404 handler for unknown API routes
 app.use('/api', (req, res) => {

@@ -1,64 +1,147 @@
-import { initRouter, navigate } from './router.js'
+import { toast } from '../main.js'
+import { api } from '../api.js'
 
-const toastContainer = document.createElement('div')
-toastContainer.className = 'toast-container'
-document.body.appendChild(toastContainer)
+let allUsers = []
 
-export const toast = {
-  show(msg, type = 'info', duration = 3000) {
-    const icons = { success: '✅', error: '❌', info: 'ℹ️', loading: '⏳' }
-    const el = document.createElement('div')
-    el.className = `toast ${type}`
-    el.innerHTML = `<span>${icons[type]}</span><span>${msg}</span>`
-    toastContainer.appendChild(el)
-    if (type !== 'loading') {
-      setTimeout(() => el.remove(), duration)
+export const renderAdmin = async () => {
+  document.getElementById('main').innerHTML = `
+    <div style="max-width:1000px;margin:40px auto;padding:0 20px 60px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:16px;margin-bottom:24px">
+        <div>
+          <h2>🛡️ Admin Panel</h2>
+          <p style="color:var(--text2);margin-top:6px;font-size:0.92rem">Who's logged in, who hasn't — at a glance.</p>
+        </div>
+        <input id="userSearch" class="inp" placeholder="🔎 Search name or email…" style="max-width:240px;padding:9px 12px;font-size:0.85rem">
+      </div>
+
+      <div id="statCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:28px"></div>
+
+      <div id="adminBody"></div>
+    </div>
+  `
+
+  document.getElementById('adminBody').innerHTML = skeletonHtml()
+  document.getElementById('userSearch').addEventListener('input', (e) => {
+    renderTable(filterUsers(allUsers, e.target.value))
+  })
+
+  await load()
+}
+
+const load = async () => {
+  try {
+    const res = await api.getAdminUsers()
+    allUsers = res.data.users
+    renderStats(res.data.stats)
+    renderTable(allUsers)
+  } catch (err) {
+    if (err.message === 'Admin access only') {
+      document.getElementById('statCards').innerHTML = ''
+      document.getElementById('adminBody').innerHTML = `
+        <div style="text-align:center;padding:60px 20px;color:var(--text2)">
+          <div style="font-size:2rem;margin-bottom:10px">🔒</div>
+          <p>This section is for admins only.</p>
+        </div>
+      `
+      return
     }
-    return el
-  },
-  success(msg) { return this.show(msg, 'success') },
-  error(msg) { return this.show(msg, 'error') },
-  info(msg) { return this.show(msg, 'info') },
-  loading(msg) {
-    const el = this.show(msg, 'loading', 0)
-    return { dismiss: () => el.remove() }
+    toast.error(err.message || 'Could not load users')
+    document.getElementById('adminBody').innerHTML = `
+      <div style="text-align:center;padding:40px;color:var(--text2)">Failed to load. Try refreshing.</div>
+    `
   }
 }
 
-// Only shown to users flagged isAdmin (see server/controllers/authController.js
-// ADMIN_EMAILS). Route itself is also protected server-side, so hiding the
-// link here is just UX polish, not the actual security boundary.
-const currentUser = JSON.parse(localStorage.getItem('user') || 'null')
-const adminLink = currentUser?.isAdmin ? `<a href="/admin" data-link>🛡️ Admin</a>` : ''
+const renderStats = (stats) => {
+  const cards = [
+    { label: 'Total users', value: stats.total, color: 'var(--cyan)' },
+    { label: '✅ Have logged in', value: stats.loggedIn, color: 'var(--green)' },
+    { label: '⏳ Never logged in', value: stats.neverLoggedIn, color: 'var(--amber)' }
+  ]
+  document.getElementById('statCards').innerHTML = cards.map(c => `
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--rl);padding:18px 20px">
+      <div style="font-family:var(--mono);font-size:1.7rem;font-weight:600;color:${c.color}">${c.value}</div>
+      <div style="color:var(--text2);font-size:0.8rem;margin-top:4px">${c.label}</div>
+    </div>
+  `).join('')
+}
 
-document.getElementById('app').innerHTML = `
-  <nav class="navbar">
-    <div class="logo"> StackPilot</div>
-    <div class="nav-links">
-      <a href="/" data-link>Home</a>
-      <a href="/deploy" data-link>Deploy</a>
-      <a href="/projects" data-link>Projects</a>
-      <a href="/dashboard" data-link>Dashboard</a>
-      ${adminLink}
+const filterUsers = (users, q) => {
+  const term = q.trim().toLowerCase()
+  if (!term) return users
+  return users.filter(u => u.name.toLowerCase().includes(term) || u.email.toLowerCase().includes(term))
+}
+
+const renderTable = (users) => {
+  const body = document.getElementById('adminBody')
+
+  if (!users.length) {
+    body.innerHTML = `<div style="text-align:center;padding:40px;color:var(--text2)">No users match your search.</div>`
+    return
+  }
+
+  body.innerHTML = `
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--rl);overflow:hidden">
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:0.85rem">
+          <thead>
+            <tr style="border-bottom:1px solid var(--border);text-align:left">
+              ${['User', 'Status', 'Last login', 'Logins', 'Plan', 'Joined'].map(h =>
+                `<th style="padding:12px 16px;color:var(--text2);font-weight:500;font-size:0.75rem;letter-spacing:0.03em;text-transform:uppercase;white-space:nowrap">${h}</th>`
+              ).join('')}
+            </tr>
+          </thead>
+          <tbody>
+            ${users.map(rowHtml).join('')}
+          </tbody>
+        </table>
+      </div>
     </div>
-  </nav>
-  <main id="main"></main>
-  <footer class="footer">
-    <p> <strong>StackPilot</strong> — Upload → Detect → Deploy</p>
-    <div class="social-links">
-      <a href="https://github.com/realsunil/" target="_blank" rel="noopener" aria-label="GitHub">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.57.1.78-.25.78-.55 0-.27-.01-1.17-.02-2.12-3.2.7-3.88-1.36-3.88-1.36-.52-1.33-1.28-1.68-1.28-1.68-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.03 1.75 2.69 1.25 3.34.96.1-.74.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.68 0-1.25.45-2.28 1.18-3.08-.12-.29-.51-1.46.11-3.04 0 0 .96-.31 3.15 1.18a10.9 10.9 0 0 1 5.74 0c2.19-1.49 3.15-1.18 3.15-1.18.62 1.58.23 2.75.11 3.04.73.8 1.18 1.83 1.18 3.08 0 4.41-2.69 5.38-5.25 5.67.41.36.78 1.07.78 2.16 0 1.56-.01 2.82-.01 3.2 0 .31.2.66.79.55A11.5 11.5 0 0 0 23.5 12c0-6.35-5.15-11.5-11.5-11.5Z"/></svg>
-      </a>
-      <a href="https://www.linkedin.com/in/sunilkofficial/" target="_blank" rel="noopener" aria-label="LinkedIn">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M20.45 20.45h-3.56v-5.57c0-1.33-.02-3.04-1.85-3.04-1.86 0-2.15 1.45-2.15 2.94v5.67H9.34V9h3.41v1.56h.05c.48-.9 1.64-1.85 3.38-1.85 3.6 0 4.27 2.37 4.27 5.46v6.28ZM5.34 7.43a2.07 2.07 0 1 1 0-4.13 2.07 2.07 0 0 1 0 4.13ZM7.12 20.45H3.56V9h3.56v11.45Z"/></svg>
-      </a>
-      <a href="https://discord.gg/NStzW7sVRw" target="_blank" rel="noopener" aria-label="Discord">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M20.3 4.7A18.5 18.5 0 0 0 15.6 3l-.25.5c1.7.5 2.65 1.2 2.65 1.2a13.6 13.6 0 0 0-11.9 0s.95-.7 2.65-1.2L8.5 3a18.4 18.4 0 0 0-4.7 1.7S.5 10.2.9 15.6a18.7 18.7 0 0 0 5.6 2.8s.45-.55.8-1c-1.5-.55-2.1-1.2-2.1-1.2s.13.1.35.23A14.9 14.9 0 0 0 12 17.9a14.8 14.8 0 0 0 6.45-1.47c.22-.13.35-.23.35-.23s-.6.65-2.1 1.2c.35.45.8 1 .8 1a18.6 18.6 0 0 0 5.6-2.8c.5-6.2-1.2-11-3.8-12.9ZM9 13.5c-.85 0-1.55-.8-1.55-1.75S8.15 10 9 10s1.56.8 1.55 1.75c0 .95-.7 1.75-1.55 1.75Zm6 0c-.85 0-1.55-.8-1.55-1.75S14.15 10 15 10s1.56.8 1.55 1.75c0 .95-.7 1.75-1.55 1.75Z"/></svg>
-      </a>
-    </div>
-  </footer>
+  `
+}
+
+const rowHtml = (u) => {
+  const loggedIn = !!u.lastLogin
+  return `
+    <tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:12px 16px">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <strong>${escapeHtml(u.name)}</strong>
+          ${u.isAdmin ? `<span style="font-size:0.68rem;color:var(--purple);border:1px solid var(--purple);border-radius:4px;padding:1px 6px">ADMIN</span>` : ''}
+        </div>
+        <div style="color:var(--text2);font-size:0.78rem">${escapeHtml(u.email)}</div>
+      </td>
+      <td style="padding:12px 16px;white-space:nowrap">
+        ${loggedIn
+          ? `<span class="status-badge s-deployed" style="padding:2px 10px;font-size:0.72rem">✅ Logged in</span>`
+          : `<span class="status-badge s-pending" style="padding:2px 10px;font-size:0.72rem">⏳ Never logged in</span>`}
+      </td>
+      <td style="padding:12px 16px;color:var(--text2);white-space:nowrap">${loggedIn ? timeAgo(u.lastLogin) : '—'}</td>
+      <td style="padding:12px 16px;color:var(--text2);font-family:var(--mono)">${u.loginCount || 0}</td>
+      <td style="padding:12px 16px;color:var(--text2)">${u.plan === 'pro' ? '⭐ Pro' : 'Free'}</td>
+      <td style="padding:12px 16px;color:var(--text2);white-space:nowrap">${formatDate(u.createdAt)}</td>
+    </tr>
+  `
+}
+
+const skeletonHtml = () => `
+  <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--rl);padding:40px;text-align:center;color:var(--text2)">
+    Loading users…
+  </div>
 `
 
-document.querySelector('.logo').addEventListener('click', () => navigate('/'))
+const formatDate = (d) => new Date(d).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
 
-initRouter()
+const timeAgo = (d) => {
+  const diff = Date.now() - new Date(d).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  const days = Math.floor(hrs / 24)
+  if (days < 30) return `${days}d ago`
+  return formatDate(d)
+}
+
+const escapeHtml = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))

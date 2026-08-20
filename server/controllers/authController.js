@@ -5,6 +5,17 @@ const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '30d' });
 };
 
+// Emails listed in ADMIN_EMAILS (.env, comma-separated) get auto-promoted
+// to isAdmin on login, so you don't have to hand-edit the DB to get access
+// to the admin panel. e.g. ADMIN_EMAILS=you@example.com,teacher@example.com
+const isAdminEmail = (email) => {
+  const list = (process.env.ADMIN_EMAILS || '')
+    .split(',')
+    .map(e => e.trim().toLowerCase())
+    .filter(Boolean);
+  return list.includes(String(email).toLowerCase());
+};
+
 exports.register = async (req, res) => {
   try {
     const { name, email, password } = req.body;
@@ -47,6 +58,12 @@ exports.login = async (req, res) => {
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
 
+    // Track login activity for the admin panel + auto-promote configured admins
+    user.lastLogin = new Date();
+    user.loginCount = (user.loginCount || 0) + 1;
+    if (isAdminEmail(user.email)) user.isAdmin = true;
+    await user.save();
+
     res.json({
       success: true,
       data: {
@@ -56,6 +73,7 @@ exports.login = async (req, res) => {
         plan: user.plan,
         deployCount: user.deployCount,
         maxDeploys: user.maxDeploys,
+        isAdmin: user.isAdmin,
         token: generateToken(user._id)
       }
     });

@@ -25,14 +25,21 @@ export const toast = {
   }
 }
 
+// Only shown to users flagged isAdmin (see server/controllers/authController.js
+// ADMIN_EMAILS). Route itself is also protected server-side, so hiding the
+// link here is just UX polish, not the actual security boundary.
+const currentUser = JSON.parse(localStorage.getItem('user') || 'null')
+const adminLink = currentUser?.isAdmin ? `<a href="/admin" data-link>🛡️ Admin</a>` : ''
+
 document.getElementById('app').innerHTML = `
   <nav class="navbar">
-    <div class="logo">StackPilot</div>
+    <div class="logo"> StackPilot</div>
     <div class="nav-links">
       <a href="/" data-link>Home</a>
       <a href="/deploy" data-link>Deploy</a>
       <a href="/projects" data-link>Projects</a>
       <a href="/dashboard" data-link>Dashboard</a>
+      ${adminLink}
     </div>
   </nav>
   <main id="main"></main>

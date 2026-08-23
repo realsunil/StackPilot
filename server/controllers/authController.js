@@ -5,15 +5,21 @@ const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '30d' });
 };
 
-// Emails listed in ADMIN_EMAILS (.env, comma-separated) get auto-promoted
-// to isAdmin on login, so you don't have to hand-edit the DB to get access
-// to the admin panel. e.g. ADMIN_EMAILS=you@example.com,teacher@example.com
-const isAdminEmail = (email) => {
-  const list = (process.env.ADMIN_EMAILS || '')
+// If this user's email is listed in ADMIN_EMAILS (.env), promote them to
+// role: 'admin' the moment they log in/register. Comma-separated, case
+// insensitive. Does nothing if ADMIN_EMAILS is empty/unset.
+const syncAdminRole = async (user) => {
+  const adminEmails = (process.env.ADMIN_EMAILS || '')
     .split(',')
     .map(e => e.trim().toLowerCase())
     .filter(Boolean);
-  return list.includes(String(email).toLowerCase());
+
+  const shouldBeAdmin = adminEmails.includes(user.email.toLowerCase());
+
+  if (shouldBeAdmin && user.role !== 'admin') {
+    user.role = 'admin';
+    await user.save();
+  }
 };
 
 exports.register = async (req, res) => {
@@ -34,6 +40,7 @@ exports.register = async (req, res) => {
     }
 
     const user = await User.create({ name, email, password });
+    await syncAdminRole(user);
 
     res.status(201).json({
       success: true,
@@ -41,6 +48,7 @@ exports.register = async (req, res) => {
         id: user._id,
         name: user.name,
         email: user.email,
+        role: user.role,
         token: generateToken(user._id)
       }
     });
@@ -58,11 +66,7 @@ exports.login = async (req, res) => {
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
 
-    // Track login activity for the admin panel + auto-promote configured admins
-    user.lastLogin = new Date();
-    user.loginCount = (user.loginCount || 0) + 1;
-    if (isAdminEmail(user.email)) user.isAdmin = true;
-    await user.save();
+    await syncAdminRole(user);
 
     res.json({
       success: true,
@@ -71,9 +75,9 @@ exports.login = async (req, res) => {
         name: user.name,
         email: user.email,
         plan: user.plan,
+        role: user.role,
         deployCount: user.deployCount,
         maxDeploys: user.maxDeploys,
-        isAdmin: user.isAdmin,
         token: generateToken(user._id)
       }
     });

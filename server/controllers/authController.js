@@ -5,22 +5,20 @@ const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '30d' });
 };
 
-// If this user's email is listed in ADMIN_EMAILS (.env), promote them to
-// role: 'admin' the moment they log in/register. Comma-separated, case
-// insensitive. Does nothing if ADMIN_EMAILS is empty/unset.
-const syncAdminRole = async (user) => {
-  const adminEmails = (process.env.ADMIN_EMAILS || '')
+// ADMIN_EMAILS is a comma-separated list of emails set in your host's
+// environment variables (e.g. Vercel → Project → Environment Variables),
+// case-insensitive, e.g. ADMIN_EMAILS=you@example.com,cofounder@example.com
+// Anyone whose email is on this list is auto-promoted to admin every time
+// they log in or register - this is the primary way to grant admin on a
+// site that's already live with existing users.
+const getAdminEmailAllowlist = () =>
+  (process.env.ADMIN_EMAILS || '')
     .split(',')
     .map(e => e.trim().toLowerCase())
     .filter(Boolean);
 
-  const shouldBeAdmin = adminEmails.includes(user.email.toLowerCase());
-
-  if (shouldBeAdmin && user.role !== 'admin') {
-    user.role = 'admin';
-    await user.save();
-  }
-};
+const isAllowlistedAdmin = (email) =>
+  getAdminEmailAllowlist().includes(String(email).toLowerCase());
 
 exports.register = async (req, res) => {
   try {
@@ -39,8 +37,17 @@ exports.register = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Email already registered' });
     }
 
-    const user = await User.create({ name, email, password });
-    await syncAdminRole(user);
+    // Two independent ways to become admin, so there's always a way in:
+    // 1. Your email is listed in the ADMIN_EMAILS env var (preferred -
+    //    works on an already-live site with existing users).
+    // 2. You're the very first account ever created on an empty database.
+    const isFirstUser = (await User.estimatedDocumentCount()) === 0;
+    const shouldBeAdmin = isAllowlistedAdmin(email) || isFirstUser;
+
+    const user = await User.create({
+      name, email, password,
+      role: shouldBeAdmin ? 'admin' : 'user'
+    });
 
     res.status(201).json({
       success: true,
@@ -66,7 +73,22 @@ exports.login = async (req, res) => {
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
 
-    await syncAdminRole(user);
+    if (user.suspended) {
+      return res.status(403).json({ success: false, message: 'This account has been suspended.' });
+    }
+
+    // Re-check the allowlist on every login. This means adding an email
+    // to ADMIN_EMAILS on Vercel grants admin the next time that person
+    // logs in - no DB edit, no redeploy needed for that step. It only
+    // ever promotes (never demotes) via this path - removing an email
+    // from the list does not auto-revoke; use the admin panel for that.
+    if (isAllowlistedAdmin(user.email) && user.role !== 'admin') {
+      user.role = 'admin';
+    }
+
+    user.lastLoginAt = new Date();
+    user.lastActiveAt = new Date();
+    await user.save();
 
     res.json({
       success: true,
@@ -74,8 +96,8 @@ exports.login = async (req, res) => {
         id: user._id,
         name: user.name,
         email: user.email,
-        plan: user.plan,
         role: user.role,
+        plan: user.plan,
         deployCount: user.deployCount,
         maxDeploys: user.maxDeploys,
         token: generateToken(user._id)

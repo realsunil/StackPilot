@@ -19,6 +19,11 @@ const routes = {
 // Routes that require the user to be logged in
 const protectedRoutes = ['/deploy', '/projects', '/dashboard', '/settings', '/admin']
 
+// Routes that require role === 'admin' on top of being logged in. This is
+// a UI convenience only - every /api/admin/* call is also independently
+// checked server-side, so this can never be the real security boundary.
+const adminRoutes = ['/admin']
+
 export const navigate = (path) => {
   window.history.pushState({}, '', path)
   render()
@@ -34,6 +39,17 @@ const render = () => {
     renderLogin()
     updateNav('/login')
     return
+  }
+
+  // Redirect non-admins away from the admin panel
+  if (adminRoutes.some(r => path.startsWith(r))) {
+    const user = JSON.parse(localStorage.getItem('user') || 'null')
+    if (user?.role !== 'admin') {
+      window.history.replaceState({}, '', '/dashboard')
+      renderDashboard()
+      updateNav('/dashboard')
+      return
+    }
   }
 
   // Project detail route: /projects/:id

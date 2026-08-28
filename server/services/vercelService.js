@@ -70,6 +70,11 @@ class VercelService {
       return {
         url: deploymentUrl,
         deploymentId: response.data.id,
+        // The Vercel PROJECT name (not the per-deploy hostname) - this is
+        // what /v10/projects/{name}/domains needs to attach a custom
+        // domain later, since Vercel auto-creates/reuses a project with
+        // this name from deployPayload.name above.
+        projectName: deployPayload.name,
         platform: 'vercel'
       };
 
@@ -145,6 +150,45 @@ class VercelService {
     }
 
     await logger.warning('⚠️ Vercel is still building after 3+ minutes - it will likely finish shortly; check the deployment URL directly.');
+  }
+
+  // Attaches a custom domain (e.g. "www.mystartup.com") to an already-
+  // deployed Vercel project. Returns the DNS record(s) the user needs to
+  // add at their registrar so we can show them in the UI - Vercel domains
+  // stay in a "pending" state until that DNS actually propagates.
+  async addDomain(projectName, domain, token, teamId) {
+    if (!token) throw new Error('No Vercel token found for your account.');
+    const teamQuery = teamId ? `?teamId=${encodeURIComponent(teamId)}` : '';
+
+    try {
+      await axios.post(
+        `${this.baseUrl}/v10/projects/${encodeURIComponent(projectName)}/domains${teamQuery}`,
+        { name: domain },
+        {
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          timeout: 15000
+        }
+      );
+
+      // Fetch the DNS configuration Vercel expects for this domain.
+      let instructions = `Add an A record for ${domain} pointing to 76.76.21.21 (or a CNAME to cname.vercel-dns.com for subdomains).`;
+      try {
+        const configRes = await axios.get(
+          `${this.baseUrl}/v6/domains/${encodeURIComponent(domain)}/config${teamQuery}`,
+          { headers: { 'Authorization': `Bearer ${token}` }, timeout: 10000 }
+        );
+        if (configRes.data?.misconfigured === false) {
+          instructions = 'DNS already looks correctly configured for this domain.';
+        }
+      } catch (_) {
+        // Non-fatal - fall back to the generic instructions above.
+      }
+
+      return { domain, status: 'pending', instructions };
+    } catch (error) {
+      const msg = error.response?.data?.error?.message || error.message;
+      throw new Error(`Vercel rejected the domain: ${msg}`);
+    }
   }
 
   getVercelFramework(type) {

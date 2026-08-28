@@ -85,11 +85,38 @@ class NetlifyService {
         siteId: site.id,
         platform: 'netlify'
       };
-
     } catch (error) {
       const errorMsg = error.response?.data?.message || error.response?.data?.error || error.message;
       await logger.error(`❌ Netlify deployment failed: ${errorMsg}`);
       throw new Error(`Netlify deployment failed: ${errorMsg}`);
+    }
+  }
+
+  // Attaches a custom domain to an already-deployed Netlify site as its
+  // primary custom_domain. Netlify serves the site over that domain as
+  // soon as the user's DNS (a CNAME to <site>.netlify.app, or Netlify's
+  // load-balancer IP for an apex domain) points at it - there's no
+  // separate "verify" step to poll like Vercel has.
+  async addDomain(siteId, domain, token) {
+    if (!token) throw new Error('No Netlify token found for your account.');
+    try {
+      await axios.patch(
+        `${this.baseUrl}/sites/${siteId}`,
+        { custom_domain: domain },
+        {
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          timeout: 15000
+        }
+      );
+
+      return {
+        domain,
+        status: 'pending',
+        instructions: `Point ${domain} at Netlify: add a CNAME record to your-site.netlify.app for a subdomain, or an A record to 75.2.60.5 for an apex domain, then wait for DNS to propagate.`
+      };
+    } catch (error) {
+      const msg = error.response?.data?.message || error.response?.data?.error || error.message;
+      throw new Error(`Netlify rejected the domain: ${msg}`);
     }
   }
 

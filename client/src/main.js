@@ -25,11 +25,8 @@ export const toast = {
   }
 }
 
-// Only shown to users flagged isAdmin (see server/controllers/authController.js
-// ADMIN_EMAILS). Route itself is also protected server-side, so hiding the
-// link here is just UX polish, not the actual security boundary.
 const currentUser = JSON.parse(localStorage.getItem('user') || 'null')
-const adminLink = currentUser?.isAdmin ? `<a href="/admin" data-link>🛡️ Admin</a>` : ''
+const isAdmin = currentUser?.role === 'admin'
 
 document.getElementById('app').innerHTML = `
   <nav class="navbar">
@@ -39,7 +36,7 @@ document.getElementById('app').innerHTML = `
       <a href="/deploy" data-link>Deploy</a>
       <a href="/projects" data-link>Projects</a>
       <a href="/dashboard" data-link>Dashboard</a>
-      ${adminLink}
+      ${isAdmin ? '<a href="/admin" data-link class="nav-admin-link">🛡️ Admin</a>' : ''}
     </div>
   </nav>
   <main id="main"></main>

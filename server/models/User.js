@@ -48,10 +48,17 @@ const userSchema = new mongoose.Schema({
   maxDeploys: { type: Number, default: 10 }, // Free tier limit
   plan: { type: String, enum: ['free', 'pro'], default: 'free' },
 
-  // Admin panel support
-  isAdmin: { type: Boolean, default: false },
-  lastLogin: { type: Date, default: null },
-  loginCount: { type: Number, default: 0 },
+  // Admin panel: role-based access + activity/suspension tracking.
+  // The very first account ever registered is auto-promoted to admin
+  // (see authController.register) so there's always a way in without
+  // touching the database by hand.
+  role: { type: String, enum: ['user', 'admin'], default: 'user' },
+  suspended: { type: Boolean, default: false },
+  lastLoginAt: { type: Date, default: null },
+  // Updated (throttled) on every authenticated request - used to derive
+  // "online now" in the admin panel. Not a live socket presence, just
+  // "active in the last few minutes".
+  lastActiveAt: { type: Date, default: null },
 
   createdAt: { type: Date, default: Date.now }
 });

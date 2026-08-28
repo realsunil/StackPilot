@@ -24,6 +24,8 @@ class DeploymentEngine {
       project.status = 'deployed';
       project.deployedUrl = result.url;
       project.deploymentPlatform = result.platform;
+      // Needed later to attach a custom domain without redeploying.
+      project.platformRef = result.projectName || result.siteId || null;
       await project.save();
 
       // Only count real, completed deploys against the free-tier limit -

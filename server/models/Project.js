@@ -56,6 +56,30 @@ const projectSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+  // The platform-side identifier needed to attach a custom domain later
+  // (Vercel project name, or Netlify site id). Populated once a deploy
+  // to that platform succeeds - see deploymentEngine.js.
+  platformRef: {
+    type: String,
+    default: null
+  },
+  // Custom domain the user has pointed at this deployment (e.g. their
+  // own "mystartup.com"), managed from the project detail page.
+  customDomain: {
+    type: String,
+    default: null
+  },
+  domainStatus: {
+    type: String,
+    enum: ['none', 'pending', 'active', 'error'],
+    default: 'none'
+  },
+  // DNS records the user needs to add at their registrar, returned by
+  // the platform when the domain is added - shown verbatim in the UI.
+  domainInstructions: {
+    type: String,
+    default: null
+  },
   buildCommand: {
     type: String,
     default: null

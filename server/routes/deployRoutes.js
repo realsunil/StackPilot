@@ -6,7 +6,9 @@ const { protect, checkDeployLimit, attachTokens } = require('../middleware/auth'
 const {
   startDeploy,
   analyzeProject,
-  getDeployLogs
+  getDeployLogs,
+  setDomain,
+  removeDomain
 } = require('../controllers/deployController');
 const { quickAnalyze } = require('../controllers/analyzerController');
 
@@ -25,5 +27,10 @@ router.post('/:projectId', deployStartLimiter, protect, attachTokens, checkDeplo
 router.get('/:projectId/analyze', protect, analyzeProject);
 router.get('/:projectId/logs', protect, getDeployLogs);
 router.post('/analyze/quick', protect, quickAnalyze);
+
+// Custom domain management - needs the user's real platform tokens
+// (attachTokens), same as starting a deploy does.
+router.post('/:projectId/domain', protect, attachTokens, setDomain);
+router.delete('/:projectId/domain', protect, removeDomain);
 
 module.exports = router;

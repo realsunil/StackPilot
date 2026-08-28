@@ -2,6 +2,8 @@ const DeploymentEngine = require('../services/deploymentEngine');
 const Project = require('../models/Project');
 const User = require('../models/User');
 const analyzerService = require('../services/analyzerService');
+const vercelService = require('../services/vercelService');
+const netlifyService = require('../services/netlifyService');
 
 // @desc    Start deployment
 // @route   POST /api/deploy/:projectId
@@ -129,6 +131,71 @@ exports.getDeployLogs = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Project not found' });
     }
 
+    res.json({ success: true, data: project });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Attach a custom domain (e.g. "www.mystartup.com") to an
+//          already-deployed project, on whichever platform it was
+//          deployed to. Requires attachTokens (route wires it up).
+// @route   POST /api/deploy/:projectId/domain
+exports.setDomain = async (req, res) => {
+  try {
+    const { domain } = req.body;
+    if (!domain || !/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/i.test(domain)) {
+      return res.status(400).json({ success: false, message: 'Enter a valid domain, e.g. www.mysite.com' });
+    }
+
+    const project = await Project.findOne({ projectId: req.params.projectId, user: req.user._id });
+    if (!project) {
+      return res.status(404).json({ success: false, message: 'Project not found' });
+    }
+    if (project.status !== 'deployed' || !project.platformRef) {
+      return res.status(400).json({ success: false, message: 'Deploy this project first, then attach a domain.' });
+    }
+
+    const tokens = req.user.tokens || {};
+    let result;
+
+    if (project.deploymentPlatform === 'vercel') {
+      const teamId = req.user.connections?.vercel?.teamId || null;
+      result = await vercelService.addDomain(project.platformRef, domain, tokens.vercel, teamId);
+    } else if (project.deploymentPlatform === 'netlify') {
+      result = await netlifyService.addDomain(project.platformRef, domain, tokens.netlify);
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: `Custom domains aren't supported yet for ${project.deploymentPlatform}.`
+      });
+    }
+
+    project.customDomain = domain;
+    project.domainStatus = result.status;
+    project.domainInstructions = result.instructions;
+    await project.save();
+
+    res.json({ success: true, data: project });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Remove the custom domain from a project (StackPilot-side only;
+//          doesn't delete the domain from the platform, just stops
+//          showing/tracking it here).
+// @route   DELETE /api/deploy/:projectId/domain
+exports.removeDomain = async (req, res) => {
+  try {
+    const project = await Project.findOne({ projectId: req.params.projectId, user: req.user._id });
+    if (!project) {
+      return res.status(404).json({ success: false, message: 'Project not found' });
+    }
+    project.customDomain = null;
+    project.domainStatus = 'none';
+    project.domainInstructions = null;
+    await project.save();
     res.json({ success: true, data: project });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

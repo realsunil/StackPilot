@@ -18,11 +18,28 @@ exports.protect = async (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({ success: false, message: 'User not found' });
     }
-    
+
+    if (req.user.suspended) {
+      return res.status(403).json({ success: false, message: 'This account has been suspended.' });
+    }
+
+    // Fire-and-forget "last seen" heartbeat for the admin panel's online
+    // indicator. Never awaited/blocking - a slow write here must not add
+    // latency to every single request.
+    User.findByIdAndUpdate(req.user._id, { lastActiveAt: new Date() }).catch(() => {});
+
     next();
   } catch (error) {
     res.status(401).json({ success: false, message: 'Not authorized, token failed' });
   }
+};
+
+// Admin-only routes. Must run AFTER protect.
+exports.isAdmin = (req, res, next) => {
+  if (req.user?.role !== 'admin') {
+    return res.status(403).json({ success: false, message: 'Admin access required' });
+  }
+  next();
 };
 
 // Deploy routes need the user's actual saved tokens, which are hidden
@@ -38,14 +55,6 @@ exports.attachTokens = async (req, res, next) => {
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to load connected accounts' });
   }
-};
-
-// Gate the admin panel routes. Must run AFTER protect (needs req.user).
-exports.adminOnly = (req, res, next) => {
-  if (!req.user || !req.user.isAdmin) {
-    return res.status(403).json({ success: false, message: 'Admin access only' });
-  }
-  next();
 };
 
 exports.checkDeployLimit = async (req, res, next) => {

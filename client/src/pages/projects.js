@@ -152,6 +152,28 @@ export const renderProjectDetail = async (projectId) => {
           </div>
         ` : ''}
 
+        ${p.status === 'deployed' && ['vercel', 'netlify'].includes(p.deploymentPlatform) ? `
+          <div class="live-card" style="margin:20px 0;text-align:left">
+            <h3>🌍 Custom domain</h3>
+            ${p.customDomain ? `
+              <p style="margin:6px 0">
+                <strong>${p.customDomain}</strong>
+                <span class="status-badge s-${p.domainStatus === 'active' ? 'deployed' : p.domainStatus === 'error' ? 'failed' : 'pending'}" style="margin-left:8px;font-size:0.72rem;padding:2px 10px">${p.domainStatus}</span>
+              </p>
+              ${p.domainInstructions ? `<p style="color:var(--text2);font-size:0.85rem">${escapeHtml(p.domainInstructions)}</p>` : ''}
+              <button class="btn btn-secondary btn-sm" id="removeDomainBtn" style="margin-top:8px">Remove domain</button>
+            ` : `
+              <p style="color:var(--text2);font-size:0.88rem;margin-bottom:10px">
+                Point your own domain (e.g. www.mystartup.com) at this deployment.
+              </p>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <input class="inp" id="domainInput" placeholder="www.mystartup.com" style="flex:1 1 220px;min-width:0">
+                <button class="btn btn-primary btn-sm" id="setDomainBtn">Attach domain</button>
+              </div>
+            `}
+          </div>
+        ` : ''}
+
         <div class="action-bar">
           <button class="btn btn-primary" id="redeployBtn">🔄 Redeploy</button>
           <button class="btn btn-danger" id="deleteBtn">🗑️ Delete</button>
@@ -199,6 +221,36 @@ export const renderProjectDetail = async (projectId) => {
       }
     })
 
+    document.getElementById('setDomainBtn')?.addEventListener('click', async () => {
+      const input = document.getElementById('domainInput')
+      const domain = input?.value?.trim()
+      if (!domain) return toast.error('Enter a domain first')
+
+      const btn = document.getElementById('setDomainBtn')
+      btn.disabled = true
+      btn.textContent = 'Attaching…'
+      try {
+        await api.setDomain(projectId, domain)
+        toast.success('Domain attached! Update your DNS to finish.')
+        renderProjectDetail(projectId)
+      } catch (err) {
+        toast.error(err.message || 'Could not attach domain')
+        btn.disabled = false
+        btn.textContent = 'Attach domain'
+      }
+    })
+
+    document.getElementById('removeDomainBtn')?.addEventListener('click', async () => {
+      if (!confirm('Remove this custom domain from StackPilot? (This does not delete it from Vercel/Netlify.)')) return
+      try {
+        await api.removeDomain(projectId)
+        toast.success('Domain removed')
+        renderProjectDetail(projectId)
+      } catch (err) {
+        toast.error(err.message || 'Could not remove domain')
+      }
+    })
+
     const lb = main.querySelector('.logs-body')
     if (lb) lb.scrollTop = lb.scrollHeight
 
@@ -216,3 +268,5 @@ const formatTime = (ts) => {
   const d = new Date(ts)
   return d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
+
+const escapeHtml = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))

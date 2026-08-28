@@ -44,9 +44,6 @@ export const api = {
   getMe: () => req('GET', '/auth/me'),
   updateTokens: (tokens) => req('PUT', '/auth/tokens', tokens),
 
-  // Admin panel
-  getAdminUsers: () => req('GET', '/admin/users'),
-
   // Connected deployment platforms (dashboard)
   getConnections: () => req('GET', '/auth/connections'),
   // Vercel/Netlify are full-page OAuth redirects, not fetch calls -
@@ -67,6 +64,19 @@ export const api = {
   analyzeProject: (projectId) => req('GET', `/deploy/${projectId}/analyze`),
   getDeployLogs: (projectId) => req('GET', `/deploy/${projectId}/logs`),
   quickAnalyze: (githubUrl) => req('POST', '/deploy/analyze/quick', { githubUrl }),
+
+  // Custom domain (attach the user's own domain to a deployed project)
+  setDomain: (projectId, domain) => req('POST', `/deploy/${projectId}/domain`, { domain }),
+  removeDomain: (projectId) => req('DELETE', `/deploy/${projectId}/domain`),
+
+  // Admin panel
+  adminStats: () => req('GET', '/admin/stats'),
+  adminListUsers: (params = {}) => {
+    const qs = new URLSearchParams(params).toString()
+    return req('GET', `/admin/users${qs ? '?' + qs : ''}`)
+  },
+  adminUpdateUser: (id, patch) => req('PATCH', `/admin/users/${id}`, patch),
+  adminDeleteUser: (id) => req('DELETE', `/admin/users/${id}`),
 }
 
 // Full-page redirect into "Login with Vercel" / "Login with Netlify".

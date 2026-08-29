@@ -40,6 +40,8 @@ export const renderDashboard = async () => {
         <button class="btn btn-secondary btn-sm" id="logoutBtn">🚪 Logout</button>
       </div>
 
+      <div id="adminEntry"></div>
+
       <div class="input-grp" style="margin-top:28px">
         <label style="font-size:1rem;color:var(--text)">🔌 Connected platforms</label>
         <p style="color:var(--text2);font-size:0.85rem;margin-bottom:16px">
@@ -86,6 +88,26 @@ const loadEverything = async () => {
     document.getElementById('dashTitle').textContent = `👋 Hey, ${user.name}`
     document.getElementById('dashSub').textContent =
       `${user.email} · ${user.plan === 'pro' ? '⭐ Pro plan' : `Free plan · ${user.deployCount}/${user.maxDeploys} deploys used`}`
+
+    // Big, hard-to-miss admin entry point right on the dashboard — only
+    // rendered for accounts with role 'admin' (checked here client-side
+    // AND independently by every /api/admin/* route on the server, so
+    // hiding this button is not the real security boundary).
+    const adminSlot = document.getElementById('adminEntry')
+    if (user.role === 'admin') {
+      adminSlot.innerHTML = `
+        <div style="margin:18px 0;padding:16px 20px;background:rgba(242,169,59,0.08);border:1px solid rgba(242,169,59,0.35);border-radius:var(--rl);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+          <div>
+            <strong>🛡️ You have admin access</strong>
+            <p style="color:var(--text2);font-size:0.82rem;margin-top:2px">Manage users, see who's online, and adjust plans.</p>
+          </div>
+          <button class="btn btn-primary btn-sm" id="goAdminBtn">Open Admin Panel →</button>
+        </div>
+      `
+      document.getElementById('goAdminBtn').onclick = () => navigate('/admin')
+    } else {
+      adminSlot.innerHTML = ''
+    }
 
     renderCards(conn.data || {})
   } catch (err) {

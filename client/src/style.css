@@ -153,6 +153,7 @@ h1, h2, h3, h4, .logo, .plat-name, .status-top h2, .page-header h2,
   font-size: 0.9rem;
   padding: 8px 15px;
   border-radius: 11px;
+  white-space: nowrap;
   transition: color 0.2s, background 0.2s;
 }
 .nav-links a:hover { color: var(--text); background: rgba(255,255,255,0.06); }
@@ -676,7 +677,7 @@ select.inp option { background: #14141f; color: var(--text); }
   /* navbar: wrap into two rows so all nav links stay visible instead of clipping */
   .navbar { flex-wrap: wrap; row-gap: 8px; padding: 10px 12px; border-radius: 16px; }
   .nav-links { width: 100%; justify-content: space-between; gap: 2px; order: 3; }
-  .nav-links a { font-size: 0.74rem; padding: 7px 9px; }
+  .nav-links a { font-size: 0.72rem; padding: 7px 7px; flex: 0 1 auto; }
   .hero { padding: 40px 18px 20px; }
   .features { padding: 36px 16px 40px; }
   .term-body { font-size: 0.7rem; }
@@ -687,4 +688,10 @@ select.inp option { background: #14141f; color: var(--text); }
   *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; scroll-behavior: auto !important; }
   .term-body div { opacity: 1; }
   .t-bar::after { width: 100%; }
+}
+
+/* very narrow phones: let the nav scroll sideways instead of breaking a label */
+@media (max-width: 380px) {
+  .nav-links { overflow-x: auto; justify-content: flex-start; scrollbar-width: none; }
+  .nav-links::-webkit-scrollbar { display: none; }
 }

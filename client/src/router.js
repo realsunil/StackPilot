@@ -4,6 +4,7 @@ import { renderProjects, renderProjectDetail } from './pages/projects.js'
 import { renderLogin, renderRegister } from './pages/auth.js'
 import { renderDashboard } from './pages/dashboard.js'
 import { renderAdmin } from './pages/admin.js'
+import { openAdminGate } from './adminGate.js'
 
 const routes = {
   '/': renderHome,
@@ -17,9 +18,9 @@ const routes = {
 }
 
 // Routes that require the user to be logged in
-const protectedRoutes = ['/deploy', '/projects', '/dashboard', '/settings', '/admin']
+const protectedRoutes = ['/deploy', '/projects', '/dashboard', '/settings']
 
-// Routes that require role === 'admin' on top of being logged in. This is
+// /admin opens only with the password-gate token (or an admin login). This is
 // a UI convenience only - every /api/admin/* call is also independently
 // checked server-side, so this can never be the real security boundary.
 const adminRoutes = ['/admin']
@@ -41,13 +42,16 @@ const render = () => {
     return
   }
 
-  // Redirect non-admins away from the admin panel
+  // Admin panel: needs the hidden-gate token or an admin login. Otherwise
+  // go home and (silently) pop the password box.
   if (adminRoutes.some(r => path.startsWith(r))) {
     const user = JSON.parse(localStorage.getItem('user') || 'null')
-    if (user?.role !== 'admin') {
-      window.history.replaceState({}, '', '/dashboard')
-      renderDashboard()
-      updateNav('/dashboard')
+    const unlocked = !!sessionStorage.getItem('adminToken') || (token && user?.role === 'admin')
+    if (!unlocked) {
+      window.history.replaceState({}, '', '/')
+      renderHome()
+      updateNav('/')
+      openAdminGate()
       return
     }
   }

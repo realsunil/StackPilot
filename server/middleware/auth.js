@@ -42,6 +42,24 @@ exports.isAdmin = (req, res, next) => {
   next();
 };
 
+// Guard for /api/admin/*. Two ways in:
+//  1. A valid admin-panel token (from the hidden password gate) sent in the
+//     `x-admin-token` header - works even if you're not logged in.
+//  2. Otherwise, the old way: a normal login with role === 'admin'.
+exports.adminAccess = (req, res, next) => {
+  const t = req.headers['x-admin-token'];
+  if (t) {
+    try {
+      const d = jwt.verify(t, process.env.JWT_SECRET);
+      if (d.purpose === 'admin-panel') {
+        req.adminPanel = true;
+        return next();
+      }
+    } catch (_) { /* fall through to normal login check */ }
+  }
+  return exports.protect(req, res, () => exports.isAdmin(req, res, next));
+};
+
 // Deploy routes need the user's actual saved tokens, which are hidden
 // (select: false) on every other route so they never leak to the client.
 // This runs AFTER protect and re-fetches just the token fields.

@@ -1,6 +1,7 @@
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const router = express.Router();
-const { register, login, getMe, updateTokens } = require('../controllers/authController');
+const { register, login, getMe, updateTokens, forgotPassword, resetPassword } = require('../controllers/authController');
 const {
   getStatus,
   vercelConnect,
@@ -14,8 +15,27 @@ const {
 } = require('../controllers/connectionController');
 const { protect } = require('../middleware/auth');
 
+// Forgot-password: limited per IP so it can't be used to spam inboxes
+// or to guess reset tokens.
+const forgotLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many reset requests. Try again in 15 minutes.' }
+});
+const resetLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many attempts. Try again in 15 minutes.' }
+});
+
 router.post('/register', register);
 router.post('/login', login);
+router.post('/forgot-password', forgotLimiter, forgotPassword);
+router.post('/reset-password/:token', resetLimiter, resetPassword);
 router.post('/logout', protect, logout);
 router.get('/me', protect, getMe);
 router.put('/tokens', protect, updateTokens);

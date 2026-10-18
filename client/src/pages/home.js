@@ -13,7 +13,7 @@ export const renderHome = () => {
         </div>
         <div class="hero-stats">
           <div><b>12+</b><span>frameworks</span></div>
-          <div><b>3</b><span>platforms</span></div>
+          <div><b>4</b><span>platforms</span></div>
           <div><b>0</b><span>tokens to paste</span></div>
         </div>
       </div>

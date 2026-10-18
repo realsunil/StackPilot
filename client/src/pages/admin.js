@@ -268,6 +268,9 @@ const rowHtml = (u) => {
           <button class="btn btn-secondary btn-sm act-role" data-role="${u.role === 'admin' ? 'user' : 'admin'}">
             ${u.role === 'admin' ? 'Revoke admin' : 'Make admin'}
           </button>
+          <button class="btn btn-secondary btn-sm act-limit" data-limit="${u.maxDeploys}" title="Change deploy limit">
+            Limit
+          </button>
           <button class="btn btn-secondary btn-sm act-suspend" data-suspend="${u.suspended ? 'false' : 'true'}">
             ${u.suspended ? 'Unsuspend' : 'Suspend'}
           </button>
@@ -290,6 +293,24 @@ const wireRowActions = () => {
         await Promise.all([loadUsers(), loadStats()])
       } catch (err) {
         toast.error(err.message)
+      }
+    }
+
+    row.querySelector('.act-limit').onclick = async (e) => {
+      const current = e.currentTarget.getAttribute('data-limit')
+      const input = prompt(`New deploy limit for this user (current: ${current}):`, current)
+      if (input === null) return
+      const maxDeploys = Number(input.trim())
+      if (input.trim() === '' || !Number.isInteger(maxDeploys) || maxDeploys < 0) {
+        toast.error('Enter a whole number (0 or more)')
+        return
+      }
+      try {
+        await api.adminUpdateUser(id, { maxDeploys })
+        toast.success(`Deploy limit set to ${maxDeploys}`)
+        await loadUsers()
+      } catch (err) {
+        if (!handleAdminError(err)) toast.error(err.message)
       }
     }
 

@@ -9,6 +9,11 @@ const req = async (method, url, data = null, isForm = false) => {
   const headers = isForm ? {} : { 'Content-Type': 'application/json' }
   if (token) headers['Authorization'] = `Bearer ${token}`
 
+  // Admin panel calls also carry the token from the hidden password gate.
+  const isAdminCall = url.startsWith('/admin')
+  const adminToken = sessionStorage.getItem('adminToken')
+  if (isAdminCall && adminToken) headers['x-admin-token'] = adminToken
+
   const opts = {
     method,
     headers,
@@ -21,6 +26,16 @@ const req = async (method, url, data = null, isForm = false) => {
     json = await res.json()
   } catch {
     json = { success: false, message: 'Invalid response from server' }
+  }
+
+  // Admin panel 401s mean "admin session expired / wrong password" - they
+  // must NOT log the normal user out.
+  if (isAdminCall && res.status === 401) {
+    if (url !== '/admin/unlock') {
+      sessionStorage.removeItem('adminToken')
+      throw new Error('Admin session expired - unlock again.')
+    }
+    throw new Error(json.message || 'Wrong password')
   }
 
   if (res.status === 401) {
@@ -49,6 +64,7 @@ export const api = {
   // Vercel/Netlify are full-page OAuth redirects, not fetch calls -
   // see loginWithProvider() below.
   connectRender: (apiKey) => req('POST', '/auth/connect/render', { apiKey }),
+  connectMongo: (uri) => req('POST', '/auth/connect/mongodb', { uri }),
   disconnectProvider: (provider) => req('DELETE', `/auth/connect/${provider}`),
 
   // Projects
@@ -70,6 +86,11 @@ export const api = {
   removeDomain: (projectId) => req('DELETE', `/deploy/${projectId}/domain`),
 
   // Admin panel
+  adminUnlock: (password) => req('POST', '/admin/unlock', { password }),
+  adminLogins: (params = {}) => {
+    const qs = new URLSearchParams(params).toString()
+    return req('GET', `/admin/logins${qs ? '?' + qs : ''}`)
+  },
   adminStats: () => req('GET', '/admin/stats'),
   adminListUsers: (params = {}) => {
     const qs = new URLSearchParams(params).toString()

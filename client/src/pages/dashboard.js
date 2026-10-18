@@ -25,7 +25,25 @@ const PLATFORMS = [
     name: 'Render',
     oauth: false,
     color: '#46e3b7',
-    blurb: 'Deploy backends & full-stack apps from GitHub.'
+    blurb: 'Deploy backends & full-stack apps from GitHub.',
+    secret: true,
+    placeholder: 'Render API key',
+    note: "Render doesn't offer a public login button (no OAuth) — paste your free API key once below.",
+    linkUrl: 'https://dashboard.render.com/u/settings#api-keys',
+    linkText: 'Get a free key →'
+  },
+  {
+    id: 'mongodb',
+    icon: '🍃',
+    name: 'MongoDB',
+    oauth: false,
+    color: '#13aa52',
+    blurb: 'Add a database: connect your MongoDB Atlas (or any public MongoDB) cluster.',
+    secret: true,
+    placeholder: 'mongodb+srv://user:pass@cluster…',
+    note: 'Paste your connection string once. It is test-connected, then stored encrypted. In Atlas → Network Access, allow 0.0.0.0/0 so StackPilot can reach it.',
+    linkUrl: 'https://cloud.mongodb.com/',
+    linkText: 'Open MongoDB Atlas →'
   }
 ]
 
@@ -126,8 +144,8 @@ const renderCards = (connections) => {
     const disconnectBtn = document.getElementById(`disconnect-${p.id}`)
     if (disconnectBtn) disconnectBtn.onclick = () => handleDisconnect(p.id)
 
-    const connectRenderBtn = document.getElementById('connectRenderBtn')
-    if (connectRenderBtn) connectRenderBtn.onclick = handleConnectRender
+    const connectBtn = document.getElementById(`connect-${p.id}`)
+    if (connectBtn) connectBtn.onclick = () => handleConnectKey(p.id)
   })
 }
 
@@ -144,10 +162,8 @@ const cardHtml = (p, state) => {
             : `<span class="status-badge s-pending" style="padding:2px 10px;font-size:0.72rem">Not connected</span>`}
         </div>
         <p style="color:var(--text2);font-size:0.82rem;margin-top:4px">${p.blurb}</p>
-        ${!p.oauth ? `
-          <p style="color:var(--muted);font-size:0.74rem;margin-top:6px">
-            Render doesn't offer a public login button (no OAuth) — paste your free API key once below.
-          </p>
+        ${!p.oauth && p.note ? `
+          <p style="color:var(--muted);font-size:0.74rem;margin-top:6px">${p.note}</p>
         ` : ''}
       </div>
       <div style="display:flex;flex-direction:column;gap:8px;align-items:stretch;flex:1 1 180px;min-width:0;max-width:100%">
@@ -157,10 +173,10 @@ const cardHtml = (p, state) => {
               ? `<button class="btn btn-primary btn-sm" id="login-${p.id}">${p.icon} Login with ${p.name}</button>`
               : `
                 <div style="display:flex;gap:8px;flex-wrap:wrap">
-                  <input class="inp" id="renderKeyInput" placeholder="Render API key" style="padding:8px 10px;font-size:0.82rem;flex:1 1 120px;min-width:0">
-                  <button class="btn btn-primary btn-sm" id="connectRenderBtn">Connect</button>
+                  <input class="inp" id="keyInput-${p.id}" type="${p.secret ? 'password' : 'text'}" autocomplete="off" placeholder="${p.placeholder || ''}" style="padding:8px 10px;font-size:0.82rem;flex:1 1 120px;min-width:0">
+                  <button class="btn btn-primary btn-sm" id="connect-${p.id}">Connect</button>
                 </div>
-                <a href="https://dashboard.render.com/u/settings#api-keys" target="_blank" rel="noopener" style="color:var(--blue);font-size:0.74rem">Get a free key →</a>
+                <a href="${p.linkUrl}" target="_blank" rel="noopener" style="color:var(--blue);font-size:0.74rem">${p.linkText}</a>
               `)
         }
       </div>
@@ -178,18 +194,21 @@ const handleDisconnect = async (provider) => {
   }
 }
 
-const handleConnectRender = async () => {
-  const input = document.getElementById('renderKeyInput')
-  const apiKey = input?.value?.trim()
-  if (!apiKey) return toast.error('Paste your Render API key first')
+// Platforms connected by pasting a key / connection string (Render, MongoDB)
+const handleConnectKey = async (id) => {
+  const input = document.getElementById(`keyInput-${id}`)
+  const value = input?.value?.trim()
+  const label = id === 'mongodb' ? 'connection string' : 'API key'
+  if (!value) return toast.error(`Paste your ${cap(id)} ${label} first`)
 
-  const btn = document.getElementById('connectRenderBtn')
+  const btn = document.getElementById(`connect-${id}`)
   btn.disabled = true
   btn.textContent = 'Connecting…'
 
   try {
-    await api.connectRender(apiKey)
-    toast.success('Render connected!')
+    if (id === 'mongodb') await api.connectMongo(value)
+    else await api.connectRender(value)
+    toast.success(`${id === 'mongodb' ? 'MongoDB' : cap(id)} connected!`)
     await loadEverything()
   } catch (err) {
     toast.error(err.message)

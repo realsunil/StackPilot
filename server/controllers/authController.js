@@ -1,5 +1,16 @@
 const User = require('../models/User');
 const jwt = require('jsonwebtoken');
+const LoginLog = require('../models/LoginLog');
+
+// Records every login/register attempt for the Admin Panel's "Login history"
+// tab. Fire-and-forget: a logging failure must never break a real login.
+const logAttempt = (req, data) => {
+  LoginLog.create({
+    ip: req.ip || '',
+    userAgent: String(req.headers['user-agent'] || '').slice(0, 300),
+    ...data
+  }).catch(() => {});
+};
 
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '30d' });
@@ -49,6 +60,8 @@ exports.register = async (req, res) => {
       role: shouldBeAdmin ? 'admin' : 'user'
     });
 
+    logAttempt(req, { user: user._id, email: user.email, name: user.name, method: 'register', success: true });
+
     res.status(201).json({
       success: true,
       data: {
@@ -68,12 +81,23 @@ exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
+    if (typeof email !== 'string' || typeof password !== 'string') {
+      return res.status(400).json({ success: false, message: 'Email and password required' });
+    }
+    const cleanEmail = email.trim().toLowerCase();
+
     const user = await User.findOne({ email });
-    if (!user || !(await user.matchPassword(password))) {
+    if (!user) {
+      logAttempt(req, { email: cleanEmail, success: false, reason: 'user_not_found' });
+      return res.status(401).json({ success: false, message: 'Invalid credentials' });
+    }
+    if (!(await user.matchPassword(password))) {
+      logAttempt(req, { user: user._id, email: user.email, name: user.name, success: false, reason: 'invalid_password' });
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
 
     if (user.suspended) {
+      logAttempt(req, { user: user._id, email: user.email, name: user.name, success: false, reason: 'suspended' });
       return res.status(403).json({ success: false, message: 'This account has been suspended.' });
     }
 
@@ -89,6 +113,8 @@ exports.login = async (req, res) => {
     user.lastLoginAt = new Date();
     user.lastActiveAt = new Date();
     await user.save();
+
+    logAttempt(req, { user: user._id, email: user.email, name: user.name, method: 'login', success: true });
 
     res.json({
       success: true,

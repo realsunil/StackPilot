@@ -144,7 +144,13 @@ exports.updateUser = async (req, res) => {
 
     if (role !== undefined) user.role = role;
     if (plan !== undefined) user.plan = plan;
-    if (maxDeploys !== undefined) user.maxDeploys = maxDeploys;
+    if (maxDeploys !== undefined) {
+      const n = Number(maxDeploys);
+      if (!Number.isInteger(n) || n < 0 || n > 100000) {
+        return res.status(400).json({ success: false, message: 'maxDeploys must be a whole number between 0 and 100000.' });
+      }
+      user.maxDeploys = n;
+    }
     if (suspended !== undefined) user.suspended = suspended;
 
     await user.save();

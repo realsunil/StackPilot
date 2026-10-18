@@ -8,6 +8,7 @@ const {
   netlifyConnect,
   netlifyCallback,
   connectRender,
+  connectMongo,
   disconnect,
   logout
 } = require('../controllers/connectionController');
@@ -32,6 +33,9 @@ router.get('/connect/netlify/callback', netlifyCallback);
 
 // Render has no public OAuth - one-time API key connect instead.
 router.post('/connect/render', protect, connectRender);
+
+// MongoDB - paste a connection string (validated, then stored encrypted).
+router.post('/connect/mongodb', protect, connectMongo);
 
 router.delete('/connect/:provider', protect, disconnect);
 

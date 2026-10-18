@@ -14,6 +14,8 @@ const userSchema = new mongoose.Schema({
     netlify: { type: String, default: null, select: false },
     render: { type: String, default: null, select: false },
     github: { type: String, default: null, select: false },
+    // User's MongoDB connection string, stored ENCRYPTED (see utils/crypto.js)
+    mongodb: { type: String, default: null, select: false },
     // Netlify's "create site" endpoint puts the new site in whichever
     // team the token happens to default to when no team is specified,
     // which is not always the personal team the user sees first in
@@ -39,6 +41,11 @@ const userSchema = new mongoose.Schema({
     render: {
       connected: { type: Boolean, default: false },
       accountName: { type: String, default: null },
+      connectedAt: { type: Date, default: null }
+    },
+    mongodb: {
+      connected: { type: Boolean, default: false },
+      accountName: { type: String, default: null }, // cluster host only, never credentials
       connectedAt: { type: Date, default: null }
     }
   },

@@ -1,6 +1,8 @@
 const axios = require('axios');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const mongoose = require('mongoose');
+const { encrypt } = require('../utils/crypto');
 const User = require('../models/User');
 const oauth = require('../config/oauth');
 
@@ -249,6 +251,85 @@ exports.connectRender = async (req, res) => {
 };
 
 // ---------------------------------------------------------------------
+// MONGODB - paste your connection string once (MongoDB Atlas or any public
+// MongoDB server). It is test-connected first, then stored ENCRYPTED. Only
+// the cluster host name is ever shown back to the client - never the
+// username/password.
+// ---------------------------------------------------------------------
+
+const extractHosts = (uri) => {
+  const m = uri.match(/^mongodb(?:\+srv)?:\/\/(?:[^@/]*@)?([^/?]+)/i);
+  if (!m) return [];
+  return m[1].split(',').map(h => h.trim().toLowerCase().replace(/^\[|\]$/g, '').replace(/:\d+$/, '')).filter(Boolean);
+};
+
+// Basic SSRF guard: this server will open a connection to whatever host the
+// user typed, so refuse localhost / private-network addresses.
+const isPrivateHost = (h) => {
+  if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h.endsWith('.internal')) return true;
+  if (h.includes(':')) return h === '::1' || h.startsWith('fc') || h.startsWith('fd') || h.startsWith('fe80');
+  const m = h.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  if (m) {
+    const a = +m[1], b = +m[2];
+    return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) ||
+           (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+  }
+  return false;
+};
+
+// @desc    Connect MongoDB with a connection string (tested before saving)
+// @route   POST /api/auth/connect/mongodb
+exports.connectMongo = async (req, res) => {
+  const uri = String(req.body?.uri || '').trim();
+
+  if (!/^mongodb(\+srv)?:\/\//i.test(uri) || uri.length > 2000) {
+    return res.status(400).json({ success: false, message: 'Paste a valid connection string starting with mongodb:// or mongodb+srv://' });
+  }
+  const hosts = extractHosts(uri);
+  if (!hosts.length || hosts.some(isPrivateHost)) {
+    return res.status(400).json({ success: false, message: 'Only public MongoDB hosts are supported (no localhost / private network).' });
+  }
+
+  let conn;
+  let dbCount = null;
+  try {
+    conn = mongoose.createConnection(uri, {
+      serverSelectionTimeoutMS: 8000,
+      connectTimeoutMS: 8000,
+      socketTimeoutMS: 8000,
+      maxPoolSize: 1
+    });
+    conn.on('error', () => {}); // avoid an unhandled 'error' event crashing the server
+    await conn.asPromise();
+    await conn.db.admin().ping();
+    try {
+      const { databases } = await conn.db.admin().listDatabases();
+      dbCount = databases.length;
+    } catch (_) { /* user may not have permission to list - not a failure */ }
+  } catch (err) {
+    let msg = String(err.message || 'Connection failed').split(uri).join('***').slice(0, 220);
+    if (/auth/i.test(msg)) msg = 'Authentication failed - check the username and password in your connection string.';
+    else if (/whitelist|IP|timed out|ENOTFOUND|ECONNREFUSED/i.test(msg)) {
+      msg = 'Could not reach the cluster. In MongoDB Atlas -> Network Access, allow 0.0.0.0/0 (StackPilot\'s server has no fixed IP), and check the host name.';
+    }
+    return res.status(400).json({ success: false, message: msg });
+  } finally {
+    if (conn) conn.close().catch(() => {});
+  }
+
+  const accountName = dbCount !== null ? `${hosts[0]} · ${dbCount} DBs` : hosts[0];
+
+  await User.findByIdAndUpdate(req.user._id, {
+    $set: {
+      'tokens.mongodb': encrypt(uri),
+      'connections.mongodb': { connected: true, accountName, connectedAt: new Date() }
+    }
+  });
+
+  res.json({ success: true, message: 'MongoDB connected!', data: { accountName } });
+};
+
+// ---------------------------------------------------------------------
 // Disconnect any provider / logout
 // ---------------------------------------------------------------------
 
@@ -256,7 +337,7 @@ exports.connectRender = async (req, res) => {
 // @route   DELETE /api/auth/connect/:provider
 exports.disconnect = async (req, res) => {
   const { provider } = req.params;
-  if (!['vercel', 'netlify', 'render'].includes(provider)) {
+  if (!['vercel', 'netlify', 'render', 'mongodb'].includes(provider)) {
     return res.status(400).json({ success: false, message: 'Unknown provider' });
   }
 

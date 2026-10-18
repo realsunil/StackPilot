@@ -19,6 +19,11 @@ connectDB();
 const app = express();
 const server = http.createServer(app);
 
+// Render/Vercel/Netlify sit behind a proxy. Without this, req.ip is the
+// proxy's IP (login history would show the same IP for everyone, and the
+// rate limiters would treat all users as one person).
+app.set('trust proxy', 1);
+
 // Socket.IO
 const io = new Server(server, {
   cors: {

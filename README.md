@@ -9,7 +9,7 @@ site — and StackPilot never sees their password, just a token to deploy on the
 behalf. Render has no public OAuth system (only Vercel/Netlify offer that), so it's
 connected with a free personal API key instead — but still only **once**, from the
 same Dashboard, never asked again after that. Every deployment always runs on that
-user's own account; the server itself never holds its own deployment-platform tokens.
+user's own account; the server itself never holds its own deployment-platform tokens
 
 ## Project structure
 

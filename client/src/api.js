@@ -55,6 +55,8 @@ export const api = {
   // Auth
   register: (data) => req('POST', '/auth/register', data),
   login: (data) => req('POST', '/auth/login', data),
+  forgotPassword: (email) => req('POST', '/auth/forgot-password', { email }),
+  resetPassword: (token, password) => req('POST', `/auth/reset-password/${encodeURIComponent(token)}`, { password }),
   logout: () => req('POST', '/auth/logout'),
   getMe: () => req('GET', '/auth/me'),
   updateTokens: (tokens) => req('PUT', '/auth/tokens', tokens),

@@ -67,6 +67,11 @@ const userSchema = new mongoose.Schema({
   // "active in the last few minutes".
   lastActiveAt: { type: Date, default: null },
 
+  // Forgot-password flow. Only the SHA-256 hash of the emailed token is
+  // stored, so a DB leak can't be used to reset anyone's password.
+  resetPasswordToken: { type: String, default: null, select: false },
+  resetPasswordExpires: { type: Date, default: null, select: false },
+
   createdAt: { type: Date, default: Date.now }
 });
 

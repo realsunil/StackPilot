@@ -1,7 +1,7 @@
 import { renderHome } from './pages/home.js'
 import { renderDeploy } from './pages/deploy.js'
 import { renderProjects, renderProjectDetail } from './pages/projects.js'
-import { renderLogin, renderRegister } from './pages/auth.js'
+import { renderLogin, renderRegister, renderForgotPassword, renderResetPassword } from './pages/auth.js'
 import { renderDashboard } from './pages/dashboard.js'
 import { renderAdmin } from './pages/admin.js'
 import { openAdminGate } from './adminGate.js'
@@ -12,6 +12,7 @@ const routes = {
   '/projects': renderProjects,
   '/login': renderLogin,
   '/register': renderRegister,
+  '/forgot-password': renderForgotPassword,
   '/dashboard': renderDashboard,
   '/settings': renderDashboard, // old link, kept working
   '/admin': renderAdmin,
@@ -54,6 +55,13 @@ const render = () => {
       openAdminGate()
       return
     }
+  }
+
+  // Password reset link from the email: /reset-password/:token
+  if (path.startsWith('/reset-password/') && path.split('/').length === 3) {
+    renderResetPassword(decodeURIComponent(path.split('/')[2]))
+    updateNav('/login')
+    return
   }
 
   // Project detail route: /projects/:id

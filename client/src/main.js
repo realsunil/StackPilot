@@ -39,6 +39,10 @@ document.getElementById('app').innerHTML = `
       <a href="/dashboard" data-link>Dashboard</a>
       ${isAdmin ? '<a href="/admin" data-link class="nav-admin-link">🛡️ Admin</a>' : ''}
     </div>
+    <button class="theme-toggle" id="themeToggle" type="button" aria-label="Switch theme" title="Switch theme">
+      <svg class="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+      <svg class="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>
+    </button>
   </nav>
   <main id="main"></main>
   <footer class="footer">
@@ -56,6 +60,23 @@ document.getElementById('app').innerHTML = `
     </div>
   </footer>
 `
+
+// Dark / light theme switch. The saved choice is applied in index.html before
+// the page paints; this just flips it and remembers it.
+const themeBtn = document.getElementById('themeToggle')
+const syncThemeLabel = () => {
+  const isLight = document.documentElement.getAttribute('data-theme') === 'light'
+  const label = isLight ? 'Switch to dark mode' : 'Switch to light mode'
+  themeBtn.setAttribute('aria-label', label)
+  themeBtn.title = label
+}
+themeBtn.addEventListener('click', () => {
+  const next = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light'
+  document.documentElement.setAttribute('data-theme', next)
+  try { localStorage.setItem('theme', next) } catch (e) { /* private mode: just don't remember it */ }
+  syncThemeLabel()
+})
+syncThemeLabel()
 
 // Logo: normal click goes home. 5 quick taps within 3s opens the hidden
 // admin password box (handy on mobile where there's no keyboard shortcut).

@@ -77,7 +77,33 @@ const render = () => {
   updateNav(path)
 }
 
+// The 🛡️ Admin link is shown ONLY while an admin account is logged in.
+// This runs on every page change (login, logout, navigation), so the link
+// appears/disappears right away - it is not decided once at page load.
+// (UI convenience only: every /api/admin/* route is also checked on the server.)
+const syncAdminLink = () => {
+  const nav = document.querySelector('.nav-links')
+  if (!nav) return
+
+  let user = null
+  try { user = JSON.parse(localStorage.getItem('user') || 'null') } catch (e) { /* bad data = not admin */ }
+  const isAdmin = !!localStorage.getItem('token') && user?.role === 'admin'
+
+  const existing = nav.querySelector('.nav-admin-link')
+  if (isAdmin && !existing) {
+    const a = document.createElement('a')
+    a.href = '/admin'
+    a.className = 'nav-admin-link'
+    a.setAttribute('data-link', '')
+    a.textContent = '🛡️ Admin'
+    nav.appendChild(a)
+  } else if (!isAdmin && existing) {
+    existing.remove()
+  }
+}
+
 const updateNav = (path) => {
+  syncAdminLink()
   document.querySelectorAll('.nav-links a').forEach(a => {
     a.classList.toggle('active', a.getAttribute('href') === path)
   })

@@ -5,7 +5,9 @@ class RenderService {
     this.baseUrl = 'https://api.render.com/v1';
   }
 
-  async deploy(projectPath, projectName, analysis, githubUrl, logger, apiKey) {
+  // options.rootDir  -> sub-folder of the repo to build (e.g. "server" in a client/+server/ repo)
+  // options.envVars  -> { NAME: value } environment variables for the service
+  async deploy(projectPath, projectName, analysis, githubUrl, logger, apiKey, options = {}) {
     if (!apiKey) {
       throw new Error('No Render API key found for your account. Add one in Settings before deploying.');
     }
@@ -38,6 +40,18 @@ class RenderService {
 
       if (analysis.language === 'python') {
         servicePayload.runtime = 'python';
+      }
+
+      if (options.rootDir) {
+        servicePayload.rootDir = options.rootDir;
+        await logger.info(`📂 Building from the "${options.rootDir}" folder of the repo`);
+      }
+
+      // Environment variables. Only the NAMES are ever logged, never values.
+      const envEntries = Object.entries(options.envVars || {});
+      if (envEntries.length) {
+        servicePayload.envVars = envEntries.map(([key, value]) => ({ key, value }));
+        await logger.info(`🔐 Setting environment variables: ${envEntries.map(([k]) => k).join(', ')}`);
       }
 
       const response = await axios.post(

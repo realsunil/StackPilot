@@ -7,7 +7,9 @@ class VercelService {
     this.baseUrl = 'https://api.vercel.com';
   }
 
-  async deploy(projectPath, projectName, analysis, logger, token, teamId) {
+  // options.env      -> runtime environment variables (e.g. MONGODB_URI for a Next.js app)
+  // options.buildEnv -> build-time variables (e.g. VITE_API_URL for a frontend)
+  async deploy(projectPath, projectName, analysis, logger, token, teamId, options = {}) {
     if (!token) {
       throw new Error('No Vercel token found for your account. Add one in Settings before deploying.');
     }
@@ -37,6 +39,18 @@ class VercelService {
           framework: this.getVercelFramework(analysis.detectedType),
         }
       };
+
+      // Environment variables. Only the NAMES are ever logged, never values.
+      const envKeys = new Set();
+      if (options.env && Object.keys(options.env).length) {
+        deployPayload.env = options.env;
+        Object.keys(options.env).forEach(k => envKeys.add(k));
+      }
+      if (options.buildEnv && Object.keys(options.buildEnv).length) {
+        deployPayload.build = { env: options.buildEnv };
+        Object.keys(options.buildEnv).forEach(k => envKeys.add(k));
+      }
+      if (envKeys.size) await logger.info(`🔐 Setting environment variables: ${[...envKeys].join(', ')}`);
 
       // Add build command if detected
       if (analysis.buildCommand) {
@@ -194,6 +208,7 @@ class VercelService {
   getVercelFramework(type) {
     const map = {
       'react': 'create-react-app',
+      'vite': 'vite',
       'nextjs': 'nextjs',
       'vue': 'vue',
       'svelte': 'svelte',

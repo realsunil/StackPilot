@@ -66,7 +66,7 @@ exports.adminAccess = (req, res, next) => {
 exports.attachTokens = async (req, res, next) => {
   try {
     const withTokens = await User.findById(req.user._id).select(
-      '+tokens.vercel +tokens.netlify +tokens.render +tokens.github +tokens.netlifyAccountSlug'
+      '+tokens.vercel +tokens.netlify +tokens.render +tokens.github +tokens.mongodb +tokens.netlifyAccountSlug'
     );
     req.user.tokens = withTokens.tokens;
     next();

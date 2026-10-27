@@ -1,222 +1,322 @@
-const axios = require('axios');
 const fs = require('fs-extra');
 const path = require('path');
 
-class VercelService {
-  constructor() {
-    this.baseUrl = 'https://api.vercel.com';
-  }
-
-  // options.env      -> runtime environment variables (e.g. MONGODB_URI for a Next.js app)
-  // options.buildEnv -> build-time variables (e.g. VITE_API_URL for a frontend)
-  async deploy(projectPath, projectName, analysis, logger, token, teamId, options = {}) {
-    if (!token) {
-      throw new Error('No Vercel token found for your account. Add one in Settings before deploying.');
-    }
-
-    // Vercel's API writes to the token owner's PERSONAL account unless a
-    // team is explicitly specified via ?teamId=, even if the user's own
-    // dashboard has a team selected - so the deploy "succeeds" but the
-    // user never sees it where they're looking. Append it whenever we
-    // know it (see deployController.js / connectionController.js).
-    const teamQuery = teamId ? `?teamId=${encodeURIComponent(teamId)}` : '';
-
-    await logger.info('🔷 Starting Vercel deployment...');
+class AnalyzerService {
+  
+  // opts.skipLayout: used when analysing a sub-folder (client/, server/) so we
+  // never go looking for a monorepo layout INSIDE a folder we already picked.
+  async analyzeProject(projectPath, opts = {}) {
+    const analysis = {
+      detectedType: 'unknown',
+      category: 'unknown',
+      framework: null,
+      language: null,
+      packageManager: null,
+      buildCommand: null,
+      startCommand: null,
+      outputDir: null,
+      hasDockerfile: false,
+      hasBuildScript: false,
+      dependencies: [],
+      nodeVersion: null,
+      usesMongo: false,
+      layout: null,
+      recommendedPlatform: 'vercel'
+    };
 
     try {
-      // Step 1: Collect all files
-      await logger.info('📦 Collecting project files...');
-      const files = await this.collectFiles(projectPath);
-      await logger.info(`Found ${files.length} files to upload`);
+      const files = await this.getAllFiles(projectPath);
+      const fileNames = files.map(f => path.basename(f));
+      const relativeFiles = files.map(f => path.relative(projectPath, f));
 
-      // Step 2: Create deployment
-      await logger.info('🚀 Creating Vercel deployment...');
+      // Check for Dockerfile
+      analysis.hasDockerfile = fileNames.includes('Dockerfile') || fileNames.includes('dockerfile');
 
-      const deployPayload = {
-        name: projectName.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
-        files: files,
-        projectSettings: {
-          framework: this.getVercelFramework(analysis.detectedType),
+      // Monorepo check: no manifest at the top level, but a client/ and/or
+      // server/ folder underneath (the classic full-stack layout). Without
+      // this, such a project was mis-detected as a plain static site just
+      // because client/index.html exists somewhere inside it.
+      if (!opts.skipLayout &&
+          !(await this.hasRootManifest(projectPath)) &&
+          !relativeFiles.includes('index.html')) {
+        const found = await this.detectLayout(projectPath);
+        if (found.frontend || found.backend) {
+          return this.applyLayout(analysis, found);
         }
-      };
-
-      // Environment variables. Only the NAMES are ever logged, never values.
-      const envKeys = new Set();
-      if (options.env && Object.keys(options.env).length) {
-        deployPayload.env = options.env;
-        Object.keys(options.env).forEach(k => envKeys.add(k));
-      }
-      if (options.buildEnv && Object.keys(options.buildEnv).length) {
-        deployPayload.build = { env: options.buildEnv };
-        Object.keys(options.buildEnv).forEach(k => envKeys.add(k));
-      }
-      if (envKeys.size) await logger.info(`🔐 Setting environment variables: ${[...envKeys].join(', ')}`);
-
-      // Add build command if detected
-      if (analysis.buildCommand) {
-        deployPayload.projectSettings.buildCommand = analysis.buildCommand;
-      }
-      if (analysis.outputDir) {
-        deployPayload.projectSettings.outputDirectory = analysis.outputDir;
       }
 
-      const response = await axios.post(
-        `${this.baseUrl}/v13/deployments${teamQuery}`,
-        deployPayload,
-        {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
-          maxBodyLength: Infinity,
-          maxContentLength: Infinity,
-          timeout: 60000
+      // Detect by config files
+      if (await this.fileExists(projectPath, 'package.json')) {
+        const pkg = await this.readJSON(projectPath, 'package.json');
+        analysis.language = 'javascript';
+        analysis.dependencies = Object.keys(pkg.dependencies || {});
+        const devDeps = Object.keys(pkg.devDependencies || {});
+        const allDeps = [...analysis.dependencies, ...devDeps];
+        analysis.usesMongo = allDeps.includes('mongoose') || allDeps.includes('mongodb');
+
+        // Detect package manager
+        if (await this.fileExists(projectPath, 'yarn.lock')) {
+          analysis.packageManager = 'yarn';
+        } else if (await this.fileExists(projectPath, 'pnpm-lock.yaml')) {
+          analysis.packageManager = 'pnpm';
+        } else {
+          analysis.packageManager = 'npm';
         }
-      );
 
-      const deploymentUrl = `https://${response.data.url}`;
-      await logger.success(`✅ Vercel deployment created!`);
-      await logger.success(`🌐 URL: ${deploymentUrl}`);
+        // Node version
+        if (pkg.engines && pkg.engines.node) {
+          analysis.nodeVersion = pkg.engines.node;
+        }
 
-      // Step 3: Wait for deployment to be ready
-      await this.waitForDeployment(response.data.id, token, logger, teamId);
+        // Build script check
+        if (pkg.scripts && pkg.scripts.build) {
+          analysis.hasBuildScript = true;
+        }
 
-      return {
-        url: deploymentUrl,
-        deploymentId: response.data.id,
-        // The Vercel PROJECT name (not the per-deploy hostname) - this is
-        // what /v10/projects/{name}/domains needs to attach a custom
-        // domain later, since Vercel auto-creates/reuses a project with
-        // this name from deployPayload.name above.
-        projectName: deployPayload.name,
-        platform: 'vercel'
-      };
+        // --- FRAMEWORK DETECTION ---
+
+        // Next.js
+        if (allDeps.includes('next')) {
+          analysis.detectedType = 'nextjs';
+          analysis.category = 'fullstack';
+          analysis.framework = 'Next.js';
+          analysis.buildCommand = `${analysis.packageManager === 'yarn' ? 'yarn' : 'npm run'} build`;
+          analysis.startCommand = `${analysis.packageManager === 'yarn' ? 'yarn' : 'npm'} start`;
+          analysis.outputDir = '.next';
+          analysis.recommendedPlatform = 'vercel';
+        }
+        // React (CRA or Vite)
+        else if (allDeps.includes('react') && !allDeps.includes('next')) {
+          analysis.detectedType = 'react';
+          analysis.category = 'frontend';
+          analysis.framework = allDeps.includes('vite') ? 'React + Vite' : 'React (CRA)';
+          analysis.buildCommand = `${analysis.packageManager === 'yarn' ? 'yarn' : 'npm run'} build`;
+          analysis.startCommand = null;
+          analysis.outputDir = allDeps.includes('vite') ? 'dist' : 'build';
+          analysis.recommendedPlatform = 'vercel';
+        }
+        // Vue.js
+        else if (allDeps.includes('vue')) {
+          analysis.detectedType = 'vue';
+          analysis.category = 'frontend';
+          analysis.framework = allDeps.includes('nuxt') ? 'Nuxt.js' : 'Vue.js';
+          analysis.buildCommand = `${analysis.packageManager === 'yarn' ? 'yarn' : 'npm run'} build`;
+          analysis.outputDir = 'dist';
+          analysis.recommendedPlatform = 'vercel';
+        }
+        // Angular
+        else if (allDeps.includes('@angular/core')) {
+          analysis.detectedType = 'angular';
+          analysis.category = 'frontend';
+          analysis.framework = 'Angular';
+          analysis.buildCommand = 'ng build --configuration production';
+          analysis.outputDir = `dist/${pkg.name || 'app'}`;
+          analysis.recommendedPlatform = 'netlify';
+        }
+        // Svelte
+        else if (allDeps.includes('svelte')) {
+          analysis.detectedType = 'svelte';
+          analysis.category = 'frontend';
+          analysis.framework = allDeps.includes('@sveltejs/kit') ? 'SvelteKit' : 'Svelte';
+          analysis.buildCommand = `${analysis.packageManager === 'yarn' ? 'yarn' : 'npm run'} build`;
+          analysis.outputDir = allDeps.includes('@sveltejs/kit') ? '.svelte-kit' : 'public/build';
+          analysis.recommendedPlatform = 'vercel';
+        }
+        // Express / Node backend
+        else if (allDeps.includes('express') || allDeps.includes('fastify') || allDeps.includes('koa')) {
+          analysis.detectedType = 'node-express';
+          analysis.category = 'backend';
+          analysis.framework = allDeps.includes('express') ? 'Express.js' : 
+                              allDeps.includes('fastify') ? 'Fastify' : 'Koa';
+          analysis.buildCommand = pkg.scripts?.build ? `${analysis.packageManager === 'yarn' ? 'yarn' : 'npm run'} build` : null;
+          analysis.startCommand = pkg.scripts?.start ? `${analysis.packageManager === 'yarn' ? 'yarn' : 'npm'} start` : 'node server.js';
+          analysis.recommendedPlatform = 'render';
+        }
+        // Plain Vite app (no UI framework) - still a frontend
+        else if (allDeps.includes('vite')) {
+          analysis.detectedType = 'vite';
+          analysis.category = 'frontend';
+          analysis.framework = 'Vite';
+          analysis.buildCommand = `${analysis.packageManager === 'yarn' ? 'yarn' : 'npm run'} build`;
+          analysis.startCommand = null;
+          analysis.outputDir = 'dist';
+          analysis.recommendedPlatform = 'vercel';
+        }
+        // Generic Node.js
+        else if (pkg.scripts && (pkg.scripts.start || pkg.main)) {
+          analysis.detectedType = 'node-express';
+          analysis.category = 'backend';
+          analysis.framework = 'Node.js';
+          analysis.startCommand = pkg.scripts?.start ? `${analysis.packageManager === 'yarn' ? 'yarn' : 'npm'} start` : `node ${pkg.main || 'index.js'}`;
+          analysis.recommendedPlatform = 'render';
+        }
+      }
+
+      // Python projects
+      else if (await this.fileExists(projectPath, 'requirements.txt') || 
+               await this.fileExists(projectPath, 'Pipfile') ||
+               await this.fileExists(projectPath, 'pyproject.toml')) {
+        analysis.language = 'python';
+
+        let requirements = '';
+        if (await this.fileExists(projectPath, 'requirements.txt')) {
+          requirements = await fs.readFile(path.join(projectPath, 'requirements.txt'), 'utf-8');
+        }
+
+        analysis.usesMongo = /pymongo|mongoengine|motor/i.test(requirements);
+
+        if (requirements.includes('django') || await this.fileExists(projectPath, 'manage.py')) {
+          analysis.detectedType = 'python-django';
+          analysis.category = 'backend';
+          analysis.framework = 'Django';
+          analysis.buildCommand = 'pip install -r requirements.txt';
+          analysis.startCommand = 'python manage.py runserver 0.0.0.0:$PORT';
+          analysis.recommendedPlatform = 'render';
+        } else if (requirements.includes('flask')) {
+          analysis.detectedType = 'python-flask';
+          analysis.category = 'backend';
+          analysis.framework = 'Flask';
+          analysis.buildCommand = 'pip install -r requirements.txt';
+          analysis.startCommand = 'python app.py';
+          analysis.recommendedPlatform = 'render';
+        } else if (requirements.includes('fastapi')) {
+          analysis.detectedType = 'python-fastapi';
+          analysis.category = 'backend';
+          analysis.framework = 'FastAPI';
+          analysis.buildCommand = 'pip install -r requirements.txt';
+          analysis.startCommand = 'uvicorn main:app --host 0.0.0.0 --port $PORT';
+          analysis.recommendedPlatform = 'render';
+        }
+      }
+
+      // Go projects
+      else if (await this.fileExists(projectPath, 'go.mod')) {
+        analysis.detectedType = 'golang';
+        analysis.category = 'backend';
+        analysis.language = 'go';
+        analysis.framework = 'Go';
+        analysis.buildCommand = 'go build -o app .';
+        analysis.startCommand = './app';
+        analysis.recommendedPlatform = 'render';
+      }
+
+      // Static HTML/CSS/JS
+      else if (fileNames.includes('index.html')) {
+        analysis.detectedType = 'html-css-js';
+        analysis.category = 'static';
+        analysis.framework = 'Static HTML/CSS/JS';
+        analysis.language = 'html';
+        analysis.outputDir = '.';
+        analysis.recommendedPlatform = 'netlify';
+      }
+
+      return analysis;
 
     } catch (error) {
-      const errorMsg = error.response?.data?.error?.message || error.message;
-      await logger.error(`❌ Vercel deployment failed: ${errorMsg}`);
-      throw new Error(`Vercel deployment failed: ${errorMsg}`);
+      console.error('Analysis error:', error);
+      return analysis;
     }
   }
 
-  async collectFiles(dirPath, basePath = dirPath) {
-    const files = [];
-    const items = await fs.readdir(dirPath);
+  async hasRootManifest(projectPath) {
+    for (const f of ['package.json', 'requirements.txt', 'Pipfile', 'pyproject.toml', 'go.mod']) {
+      if (await this.fileExists(projectPath, f)) return true;
+    }
+    return false;
+  }
 
-    for (const item of items) {
-      if (['node_modules', '.git', '.next', '__pycache__', 'venv', '.venv', '.env'].includes(item)) continue;
+  // Looks for client/ + server/ style sub-folders and analyses each one.
+  // A folder only counts if it really looks like that kind of app.
+  async detectLayout(projectPath) {
+    const FRONTEND_DIRS = ['client', 'frontend', 'web', 'ui'];
+    const BACKEND_DIRS = ['server', 'backend', 'api'];
+    const found = { frontend: null, backend: null };
 
-      const fullPath = path.join(dirPath, item);
+    const isDir = async (p) => (await fs.pathExists(p)) && (await fs.stat(p)).isDirectory();
+
+    for (const dir of FRONTEND_DIRS) {
+      const p = path.join(projectPath, dir);
+      if (!(await isDir(p))) continue;
+      const a = await this.analyzeProject(p, { skipLayout: true });
+      if (['frontend', 'static', 'fullstack'].includes(a.category)) {
+        found.frontend = { dir, analysis: a };
+        break;
+      }
+    }
+    for (const dir of BACKEND_DIRS) {
+      const p = path.join(projectPath, dir);
+      if (!(await isDir(p))) continue;
+      const a = await this.analyzeProject(p, { skipLayout: true });
+      if (a.category === 'backend') {
+        found.backend = { dir, analysis: a };
+        break;
+      }
+    }
+    return found;
+  }
+
+  // Turns the folders found by detectLayout into one top-level analysis.
+  // analysis.layout tells the deploy engine WHICH folders to deploy.
+  applyLayout(analysis, found) {
+    const f = found.frontend, b = found.backend;
+    analysis.layout = {
+      frontendDir: f ? f.dir : null,
+      backendDir: b ? b.dir : null,
+      frontendFramework: f ? f.analysis.framework : null,
+      backendFramework: b ? b.analysis.framework : null
+    };
+
+    if (f && b) {
+      analysis.detectedType = 'monorepo';
+      analysis.category = 'fullstack';
+      analysis.framework = `Full-stack (${f.analysis.framework} + ${b.analysis.framework})`;
+      analysis.language = b.analysis.language;
+      analysis.packageManager = b.analysis.packageManager;
+      analysis.usesMongo = b.analysis.usesMongo;
+      analysis.recommendedPlatform = 'vercel + render';
+      return analysis;
+    }
+
+    // Only one side found: describe the project as that folder.
+    const only = (f || b).analysis;
+    for (const k of ['detectedType', 'category', 'framework', 'language', 'packageManager',
+                     'buildCommand', 'startCommand', 'outputDir', 'hasDockerfile', 'hasBuildScript',
+                     'dependencies', 'nodeVersion', 'usesMongo', 'recommendedPlatform']) {
+      analysis[k] = only[k];
+    }
+    return analysis;
+  }
+
+  async fileExists(basePath, fileName) {
+    return fs.pathExists(path.join(basePath, fileName));
+  }
+
+  async readJSON(basePath, fileName) {
+    try {
+      return await fs.readJSON(path.join(basePath, fileName));
+    } catch {
+      return {};
+    }
+  }
+
+  async getAllFiles(dirPath, arrayOfFiles = []) {
+    const files = await fs.readdir(dirPath);
+
+    for (const file of files) {
+      if (['node_modules', '.git', '__pycache__', 'venv', '.venv'].includes(file)) continue;
+
+      const fullPath = path.join(dirPath, file);
       const stat = await fs.stat(fullPath);
 
       if (stat.isDirectory()) {
-        const subFiles = await this.collectFiles(fullPath, basePath);
-        files.push(...subFiles);
+        arrayOfFiles = await this.getAllFiles(fullPath, arrayOfFiles);
       } else {
-        const relativePath = path.relative(basePath, fullPath);
-        const content = await fs.readFile(fullPath);
-        files.push({
-          file: relativePath,
-          data: content.toString('base64'),
-          encoding: 'base64'
-        });
+        arrayOfFiles.push(fullPath);
       }
     }
 
-    return files;
-  }
-
-  async waitForDeployment(deploymentId, token, logger, teamId) {
-    await logger.info('⏳ Waiting for deployment to be ready...');
-    const teamQuery = teamId ? `?teamId=${encodeURIComponent(teamId)}` : '';
-
-    for (let i = 0; i < 40; i++) {
-      await new Promise(resolve => setTimeout(resolve, 5000));
-
-      try {
-        const response = await axios.get(
-          `${this.baseUrl}/v13/deployments/${deploymentId}${teamQuery}`,
-          {
-            headers: { 'Authorization': `Bearer ${token}` },
-            timeout: 10000
-          }
-        );
-
-        const state = response.data.readyState;
-        if (i === 0 || i % 3 === 0) {
-          await logger.info(`Build status: ${state} (checked ${i + 1}/40)...`);
-        }
-
-        if (state === 'READY') {
-          await logger.success('🎉 Deployment is live!');
-          return;
-        }
-        if (state === 'ERROR' || state === 'CANCELED') {
-          throw new Error(`Deployment ${state === 'CANCELED' ? 'was canceled' : 'failed'} on Vercel`);
-        }
-      } catch (error) {
-        if (error.message.includes('on Vercel')) throw error;
-        if (error.response?.status === 401 || error.response?.status === 403) {
-          throw new Error('Vercel rejected the request (invalid/expired token). Reconnect Vercel from the Dashboard.');
-        }
-        await logger.warning(`⚠️ Status check ${i + 1}/40 failed (${error.code || error.message}), retrying...`);
-      }
-    }
-
-    await logger.warning('⚠️ Vercel is still building after 3+ minutes - it will likely finish shortly; check the deployment URL directly.');
-  }
-
-  // Attaches a custom domain (e.g. "www.mystartup.com") to an already-
-  // deployed Vercel project. Returns the DNS record(s) the user needs to
-  // add at their registrar so we can show them in the UI - Vercel domains
-  // stay in a "pending" state until that DNS actually propagates.
-  async addDomain(projectName, domain, token, teamId) {
-    if (!token) throw new Error('No Vercel token found for your account.');
-    const teamQuery = teamId ? `?teamId=${encodeURIComponent(teamId)}` : '';
-
-    try {
-      await axios.post(
-        `${this.baseUrl}/v10/projects/${encodeURIComponent(projectName)}/domains${teamQuery}`,
-        { name: domain },
-        {
-          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-          timeout: 15000
-        }
-      );
-
-      // Fetch the DNS configuration Vercel expects for this domain.
-      let instructions = `Add an A record for ${domain} pointing to 76.76.21.21 (or a CNAME to cname.vercel-dns.com for subdomains).`;
-      try {
-        const configRes = await axios.get(
-          `${this.baseUrl}/v6/domains/${encodeURIComponent(domain)}/config${teamQuery}`,
-          { headers: { 'Authorization': `Bearer ${token}` }, timeout: 10000 }
-        );
-        if (configRes.data?.misconfigured === false) {
-          instructions = 'DNS already looks correctly configured for this domain.';
-        }
-      } catch (_) {
-        // Non-fatal - fall back to the generic instructions above.
-      }
-
-      return { domain, status: 'pending', instructions };
-    } catch (error) {
-      const msg = error.response?.data?.error?.message || error.message;
-      throw new Error(`Vercel rejected the domain: ${msg}`);
-    }
-  }
-
-  getVercelFramework(type) {
-    const map = {
-      'react': 'create-react-app',
-      'vite': 'vite',
-      'nextjs': 'nextjs',
-      'vue': 'vue',
-      'svelte': 'svelte',
-      'angular': 'angular',
-      'html-css-js': null,
-    };
-    return map[type] || null;
+    return arrayOfFiles;
   }
 }
 
-module.exports = new VercelService();
+module.exports = new AnalyzerService();

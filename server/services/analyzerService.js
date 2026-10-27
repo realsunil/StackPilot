@@ -3,7 +3,9 @@ const path = require('path');
 
 class AnalyzerService {
   
-  async analyzeProject(projectPath) {
+  // opts.skipLayout: used when analysing a sub-folder (client/, server/) so we
+  // never go looking for a monorepo layout INSIDE a folder we already picked.
+  async analyzeProject(projectPath, opts = {}) {
     const analysis = {
       detectedType: 'unknown',
       category: 'unknown',
@@ -17,6 +19,8 @@ class AnalyzerService {
       hasBuildScript: false,
       dependencies: [],
       nodeVersion: null,
+      usesMongo: false,
+      layout: null,
       recommendedPlatform: 'vercel'
     };
 
@@ -28,6 +32,19 @@ class AnalyzerService {
       // Check for Dockerfile
       analysis.hasDockerfile = fileNames.includes('Dockerfile') || fileNames.includes('dockerfile');
 
+      // Monorepo check: no manifest at the top level, but a client/ and/or
+      // server/ folder underneath (the classic full-stack layout). Without
+      // this, such a project was mis-detected as a plain static site just
+      // because client/index.html exists somewhere inside it.
+      if (!opts.skipLayout &&
+          !(await this.hasRootManifest(projectPath)) &&
+          !relativeFiles.includes('index.html')) {
+        const found = await this.detectLayout(projectPath);
+        if (found.frontend || found.backend) {
+          return this.applyLayout(analysis, found);
+        }
+      }
+
       // Detect by config files
       if (await this.fileExists(projectPath, 'package.json')) {
         const pkg = await this.readJSON(projectPath, 'package.json');
@@ -35,6 +52,7 @@ class AnalyzerService {
         analysis.dependencies = Object.keys(pkg.dependencies || {});
         const devDeps = Object.keys(pkg.devDependencies || {});
         const allDeps = [...analysis.dependencies, ...devDeps];
+        analysis.usesMongo = allDeps.includes('mongoose') || allDeps.includes('mongodb');
 
         // Detect package manager
         if (await this.fileExists(projectPath, 'yarn.lock')) {
@@ -114,6 +132,16 @@ class AnalyzerService {
           analysis.startCommand = pkg.scripts?.start ? `${analysis.packageManager === 'yarn' ? 'yarn' : 'npm'} start` : 'node server.js';
           analysis.recommendedPlatform = 'render';
         }
+        // Plain Vite app (no UI framework) - still a frontend
+        else if (allDeps.includes('vite')) {
+          analysis.detectedType = 'vite';
+          analysis.category = 'frontend';
+          analysis.framework = 'Vite';
+          analysis.buildCommand = `${analysis.packageManager === 'yarn' ? 'yarn' : 'npm run'} build`;
+          analysis.startCommand = null;
+          analysis.outputDir = 'dist';
+          analysis.recommendedPlatform = 'vercel';
+        }
         // Generic Node.js
         else if (pkg.scripts && (pkg.scripts.start || pkg.main)) {
           analysis.detectedType = 'node-express';
@@ -134,6 +162,8 @@ class AnalyzerService {
         if (await this.fileExists(projectPath, 'requirements.txt')) {
           requirements = await fs.readFile(path.join(projectPath, 'requirements.txt'), 'utf-8');
         }
+
+        analysis.usesMongo = /pymongo|mongoengine|motor/i.test(requirements);
 
         if (requirements.includes('django') || await this.fileExists(projectPath, 'manage.py')) {
           analysis.detectedType = 'python-django';
@@ -186,6 +216,75 @@ class AnalyzerService {
       console.error('Analysis error:', error);
       return analysis;
     }
+  }
+
+  async hasRootManifest(projectPath) {
+    for (const f of ['package.json', 'requirements.txt', 'Pipfile', 'pyproject.toml', 'go.mod']) {
+      if (await this.fileExists(projectPath, f)) return true;
+    }
+    return false;
+  }
+
+  // Looks for client/ + server/ style sub-folders and analyses each one.
+  // A folder only counts if it really looks like that kind of app.
+  async detectLayout(projectPath) {
+    const FRONTEND_DIRS = ['client', 'frontend', 'web', 'ui'];
+    const BACKEND_DIRS = ['server', 'backend', 'api'];
+    const found = { frontend: null, backend: null };
+
+    const isDir = async (p) => (await fs.pathExists(p)) && (await fs.stat(p)).isDirectory();
+
+    for (const dir of FRONTEND_DIRS) {
+      const p = path.join(projectPath, dir);
+      if (!(await isDir(p))) continue;
+      const a = await this.analyzeProject(p, { skipLayout: true });
+      if (['frontend', 'static', 'fullstack'].includes(a.category)) {
+        found.frontend = { dir, analysis: a };
+        break;
+      }
+    }
+    for (const dir of BACKEND_DIRS) {
+      const p = path.join(projectPath, dir);
+      if (!(await isDir(p))) continue;
+      const a = await this.analyzeProject(p, { skipLayout: true });
+      if (a.category === 'backend') {
+        found.backend = { dir, analysis: a };
+        break;
+      }
+    }
+    return found;
+  }
+
+  // Turns the folders found by detectLayout into one top-level analysis.
+  // analysis.layout tells the deploy engine WHICH folders to deploy.
+  applyLayout(analysis, found) {
+    const f = found.frontend, b = found.backend;
+    analysis.layout = {
+      frontendDir: f ? f.dir : null,
+      backendDir: b ? b.dir : null,
+      frontendFramework: f ? f.analysis.framework : null,
+      backendFramework: b ? b.analysis.framework : null
+    };
+
+    if (f && b) {
+      analysis.detectedType = 'monorepo';
+      analysis.category = 'fullstack';
+      analysis.framework = `Full-stack (${f.analysis.framework} + ${b.analysis.framework})`;
+      analysis.language = b.analysis.language;
+      analysis.packageManager = b.analysis.packageManager;
+      analysis.usesMongo = b.analysis.usesMongo;
+      analysis.recommendedPlatform = 'vercel + render';
+      return analysis;
+    }
+
+    // Only one side found: describe the project as that folder.
+    const only = (f || b).analysis;
+    for (const k of ['detectedType', 'category', 'framework', 'language', 'packageManager',
+                     'buildCommand', 'startCommand', 'outputDir', 'hasDockerfile', 'hasBuildScript',
+                     'dependencies', 'nodeVersion', 'usesMongo', 'recommendedPlatform']) {
+      analysis[k] = only[k];
+    }
+    return analysis;
   }
 
   async fileExists(basePath, fileName) {

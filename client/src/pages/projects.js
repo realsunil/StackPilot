@@ -133,6 +133,14 @@ export const renderProjectDetail = async (projectId) => {
             <div class="val">${p.metadata?.framework || p.detectedType || 'Unknown'}</div></div>
           <div class="info-cell"><div class="lbl">Category</div>
             <div class="val">${p.category || 'Unknown'}</div></div>
+          ${p.stack && p.stack !== 'auto' ? `
+            <div class="info-cell"><div class="lbl">Deploy type</div>
+              <div class="val">${{ frontend: '🎨 Frontend', backend: '⚙️ Backend', fullstack: '🧩 Full-stack' }[p.stack] || p.stack}</div></div>
+          ` : ''}
+          ${p.useDatabase ? `
+            <div class="info-cell"><div class="lbl">Database</div>
+              <div class="val">🗄️ MongoDB attached</div></div>
+          ` : ''}
           ${p.metadata?.language ? `
             <div class="info-cell"><div class="lbl">Language</div>
               <div class="val">${p.metadata.language}</div></div>
@@ -143,7 +151,17 @@ export const renderProjectDetail = async (projectId) => {
           ` : ''}
         </div>
 
-        ${p.deployedUrl ? `
+        ${p.services && p.services.length > 1 ? `
+          <div class="live-card" style="margin:20px 0;text-align:left">
+            <h3>🌐 Live URLs</h3>
+            ${p.services.map(sv => `
+              <div style="margin:12px 0 4px;font-size:0.8rem;color:var(--text2)">${{ frontend: '🎨', backend: '⚙️', app: '🧩' }[sv.role] || '🌐'} ${escapeHtml(sv.role)} · ${escapeHtml(sv.platform)}</div>
+              <a href="${escapeHtml(sv.url)}" target="_blank" rel="noopener" class="live-url" style="text-decoration:none">
+                ${escapeHtml(sv.url)} 🔗
+              </a>
+            `).join('')}
+          </div>
+        ` : p.deployedUrl ? `
           <div class="live-card" style="margin:20px 0;text-align:left">
             <h3>🌐 Live URL</h3>
             <a href="${p.deployedUrl}" target="_blank" class="live-url" style="text-decoration:none">

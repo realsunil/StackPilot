@@ -5,6 +5,8 @@ const analyzerService = require('../services/analyzerService');
 const vercelService = require('../services/vercelService');
 const netlifyService = require('../services/netlifyService');
 
+const STACKS = ['auto', 'frontend', 'backend', 'fullstack'];
+
 // @desc    Start deployment
 // @route   POST /api/deploy/:projectId
 exports.startDeploy = async (req, res) => {
@@ -28,11 +30,41 @@ exports.startDeploy = async (req, res) => {
       await project.save();
     }
 
+    // ---- What is being deployed (frontend / backend / full-stack / auto) + database ----
+    const stack = req.body.stack === undefined ? 'auto' : String(req.body.stack);
+    if (!STACKS.includes(stack)) {
+      return res.status(400).json({ success: false, message: `Unknown deploy type "${stack}". Use one of: ${STACKS.join(', ')}.` });
+    }
+    const useDatabase = req.body.useDatabase === true || req.body.useDatabase === 'true';
+    const requestedPlatform = req.body.platform || project.deploymentPlatform;
+
+    if (stack === 'frontend' && requestedPlatform === 'render') {
+      return res.status(400).json({ success: false, message: 'Render hosts backends. For a frontend choose Vercel, Netlify or Auto.' });
+    }
+    if (stack === 'backend' && ['vercel', 'netlify'].includes(requestedPlatform)) {
+      return res.status(400).json({ success: false, message: `${requestedPlatform} can't run a backend server here. Backends are deployed on Render.` });
+    }
+    if (stack === 'fullstack' && ['netlify', 'render'].includes(requestedPlatform)) {
+      return res.status(400).json({ success: false, message: 'Full-stack deploys use Vercel for the frontend and Render for the backend. Leave the platform on Auto.' });
+    }
+    if (useDatabase && stack === 'frontend') {
+      return res.status(400).json({ success: false, message: 'A database can\'t be attached to a frontend-only deploy (the connection string would end up in the public browser code). Choose Backend or Full-stack.' });
+    }
+    if (useDatabase && !(req.user.connections?.mongodb?.connected && req.user.tokens?.mongodb)) {
+      return res.status(400).json({ success: false, message: 'Connect your MongoDB from the Dashboard first, then turn the database option on.' });
+    }
+    if (stack === 'backend' && !project.githubUrl) {
+      return res.status(400).json({ success: false, message: 'Backends run on Render, which deploys from GitHub. Use the GitHub Import tab for a backend.' });
+    }
+
+    project.stack = stack;
+    project.useDatabase = useDatabase;
+
     // Override platform if provided
     if (req.body.platform) {
       project.deploymentPlatform = req.body.platform;
-      await project.save();
     }
+    await project.save();
 
     // Every deployment runs on the user's own connected platform accounts -
     // never on this server's own accounts.
@@ -71,7 +103,9 @@ exports.startDeploy = async (req, res) => {
       data: {
         projectId: project.projectId,
         status: 'deploying',
-        platform: project.deploymentPlatform
+        platform: project.deploymentPlatform,
+        stack: project.stack,
+        useDatabase: project.useDatabase
       }
     });
 
@@ -125,7 +159,7 @@ exports.analyzeProject = async (req, res) => {
 exports.getDeployLogs = async (req, res) => {
   try {
     const project = await Project.findOne({ projectId: req.params.projectId, user: req.user._id })
-      .select('projectId name status logs deployedUrl deploymentPlatform');
+      .select('projectId name status logs deployedUrl deploymentPlatform services stack useDatabase');
 
     if (!project) {
       return res.status(404).json({ success: false, message: 'Project not found' });

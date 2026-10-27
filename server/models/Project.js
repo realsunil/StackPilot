@@ -33,6 +33,7 @@ const projectSchema = new mongoose.Schema({
   detectedType: {
     type: String,
     enum: ['react', 'nextjs', 'vue', 'angular', 'svelte', 'html-css-js', 
+           'vite', 'monorepo',
            'node-express', 'python-flask', 'python-django', 'python-fastapi',
            'golang', 'rust', 'java-spring', 'unknown'],
     default: 'unknown'
@@ -42,6 +43,27 @@ const projectSchema = new mongoose.Schema({
     enum: ['frontend', 'backend', 'fullstack', 'static', 'unknown'],
     default: 'unknown'
   },
+  // What the user said they are deploying (Deploy page -> "What are you
+  // deploying?"). 'auto' = detect it from the code.
+  stack: {
+    type: String,
+    enum: ['auto', 'frontend', 'backend', 'fullstack'],
+    default: 'auto'
+  },
+  // true = pass the user's connected MongoDB to the backend as MONGODB_URI.
+  useDatabase: {
+    type: Boolean,
+    default: false
+  },
+  // One entry per thing that went live (a full-stack deploy has two:
+  // the backend and the frontend).
+  services: [{
+    _id: false,
+    role: { type: String, enum: ['frontend', 'backend', 'app'] },
+    platform: String,
+    url: String,
+    dir: String
+  }],
   deploymentPlatform: {
     type: String,
     enum: ['vercel', 'netlify', 'render', 'github-pages', 'auto', 'none'],

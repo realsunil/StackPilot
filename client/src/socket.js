@@ -41,7 +41,7 @@ export const connectSocket = (projectId, onLog, onComplete, onFailed) => {
       if (project.status === 'deployed') {
         clearInterval(pollInterval)
         pollInterval = null
-        onComplete({ url: project.deployedUrl, platform: project.deploymentPlatform })
+        onComplete({ url: project.deployedUrl, platform: project.deploymentPlatform, services: project.services || [], stack: project.stack })
       } else if (project.status === 'failed') {
         clearInterval(pollInterval)
         pollInterval = null

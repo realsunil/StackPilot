@@ -78,7 +78,8 @@ export const api = {
   getProjectTree: (projectId) => req('GET', `/projects/${projectId}/tree`),
 
   // Deploy
-  startDeploy: (projectId, platform) => req('POST', `/deploy/${projectId}`, platform ? { platform } : {}),
+  // extra: { stack: 'auto'|'frontend'|'backend'|'fullstack', useDatabase: boolean }
+  startDeploy: (projectId, platform, extra = {}) => req('POST', `/deploy/${projectId}`, { ...(platform ? { platform } : {}), ...extra }),
   analyzeProject: (projectId) => req('GET', `/deploy/${projectId}/analyze`),
   getDeployLogs: (projectId) => req('GET', `/deploy/${projectId}/logs`),
   quickAnalyze: (githubUrl) => req('POST', '/deploy/analyze/quick', { githubUrl }),

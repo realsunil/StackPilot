@@ -141,6 +141,21 @@ class DeploymentEngine {
       analysis,
       githubUrl: project.githubUrl
     });
+    // Fully automatic: if the platform we'd pick isn't connected but another one that
+    // can do the same job is, use that one. (Only when the user didn't choose a platform.)
+    if ((project.deploymentPlatform || 'auto') === 'auto' && plan.mode === 'single') {
+      for (const t of plan.targets) {
+        if (t.role !== 'frontend') continue;
+        const alt = t.platform === 'vercel' ? 'netlify' : t.platform === 'netlify' ? 'vercel' : null;
+        if (!alt || userTokens[t.platform] || !userTokens[alt]) continue;
+        // Netlify here only uploads files (no build step), so it can't host an app that needs building.
+        const needsBuild = !!analysis.buildCommand && analysis.category !== 'static';
+        if (alt === 'netlify' && needsBuild) continue;
+        await logger.info(`🔁 ${cap(t.platform)} isn't connected, using ${cap(alt)} instead.`);
+        plan.summary = plan.summary.replace(cap(t.platform), cap(alt));
+        t.platform = alt;
+      }
+    }
     await logger.info(`🧭 Plan: ${plan.summary}`);
 
     // Every platform we are about to use needs the user's connected account.

@@ -2,6 +2,46 @@ import { api } from '../api.js'
 import { navigate } from '../router.js'
 import { toast } from '../main.js'
 
+
+const cap = (v) => String(v || '').charAt(0).toUpperCase() + String(v || '').slice(1)
+
+// Where this project is live (so the confirm box can say what will really be deleted)
+const livePlaces = (p) => {
+  const list = (p.services && p.services.length)
+    ? p.services
+    : (['vercel', 'netlify'].includes(p.deploymentPlatform) && p.platformRef ? [{ platform: p.deploymentPlatform, role: 'app' }] : [])
+  return list.filter(s => s.platform).map(s => `${cap(s.platform)}${s.role && s.role !== 'app' ? ' (' + s.role + ')' : ''}`)
+}
+
+// Deleting a project also takes its live site down on Netlify / Vercel / Render.
+// Returns true when the project is gone.
+const deleteProjectFlow = async (p) => {
+  const places = livePlaces(p)
+  const question = places.length
+    ? `Delete "${p.name}"?\n\nThis also permanently deletes the live deployment on: ${places.join(', ')}.\nIts URL will stop working.`
+    : `Delete "${p.name}"?`
+  if (!confirm(question)) return false
+
+  try {
+    const r = await api.deleteProject(p.projectId)
+    toast.success(places.length ? 'Project and live deployment deleted' : 'Project deleted')
+    return true
+  } catch (err) {
+    if (err.code === 'REMOTE_DELETE_FAILED') {
+      if (confirm(`${err.message}\n\nDelete it from StackPilot anyway?\nThe live site will stay online on the platform.`)) {
+        try {
+          await api.deleteProject(p.projectId, true)
+          toast.success('Project removed from StackPilot (live site left online)')
+          return true
+        } catch (e2) { toast.error(e2.message || 'Delete failed'); return false }
+      }
+      return false
+    }
+    toast.error(err.message || 'Delete failed')
+    return false
+  }
+}
+
 export const renderProjects = async () => {
   const main = document.getElementById('main')
   main.innerHTML = `
@@ -80,14 +120,8 @@ const loadProjects = async () => {
     document.querySelectorAll('.del-btn').forEach(btn => {
       btn.addEventListener('click', async (e) => {
         e.stopPropagation()
-        if (!confirm('Delete this project?')) return
-        try {
-          await api.deleteProject(btn.dataset.id)
-          toast.success('Project deleted')
-          loadProjects()
-        } catch {
-          toast.error('Delete failed')
-        }
+        const p = projects.find(x => x.projectId === btn.dataset.id)
+        if (p && await deleteProjectFlow(p)) loadProjects()
       })
     })
 
@@ -229,14 +263,7 @@ export const renderProjectDetail = async (projectId) => {
     })
 
     document.getElementById('deleteBtn')?.addEventListener('click', async () => {
-      if (!confirm('Delete this project?')) return
-      try {
-        await api.deleteProject(projectId)
-        toast.success('Deleted!')
-        navigate('/projects')
-      } catch {
-        toast.error('Delete failed')
-      }
+      if (await deleteProjectFlow(p)) navigate('/projects')
     })
 
     document.getElementById('setDomainBtn')?.addEventListener('click', async () => {

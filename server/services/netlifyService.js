@@ -239,6 +239,22 @@ class NetlifyService {
     await addFilesToZip(dirPath, dirPath);
     zip.writeZip(zipPath);
   }
+
+  // Deletes a Netlify site (and all its deploys). 404 = it is already gone.
+  async deleteSite(siteId, token) {
+    if (!token) throw new Error('Netlify isn\'t connected, so the live site can\'t be deleted.');
+    try {
+      await axios.delete(`${this.baseUrl}/sites/${encodeURIComponent(siteId)}`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+        timeout: 30000
+      });
+      return { alreadyGone: false };
+    } catch (error) {
+      if (error.response?.status === 404) return { alreadyGone: true };
+      const msg = error.response?.data?.message || error.response?.data?.error || error.message;
+      throw new Error(`Netlify: ${msg}`);
+    }
+  }
 }
 
 module.exports = new NetlifyService();

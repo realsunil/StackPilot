@@ -34,7 +34,7 @@ class DeploymentEngine {
       project.deploymentPlatform = result.platform;
       // Needed later to attach a custom domain without redeploying.
       project.platformRef = result.projectName || result.siteId || null;
-      project.services = result.services || [{ role: 'app', platform: result.platform, url: result.url, dir: '' }];
+      project.services = result.services || [{ role: 'app', platform: result.platform, url: result.url, dir: '', ref: result.projectName || result.siteId || result.serviceId || null }];
       await project.save();
 
       // Only count real, completed deploys against the free-tier limit -
@@ -207,7 +207,7 @@ class DeploymentEngine {
         }
         throw err;
       }
-      services.push({ role: target.role, platform: r.platform, url: r.url, dir: target.dir || '' });
+      services.push({ role: target.role, platform: r.platform, url: r.url, dir: target.dir || '', ref: r.projectName || r.siteId || r.serviceId || null });
       if (target.role === 'backend') ctx.backendUrl = r.url;
       if (target === mainTarget) main = r;
 

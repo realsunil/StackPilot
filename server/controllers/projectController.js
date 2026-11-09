@@ -5,6 +5,7 @@ const fs = require('fs-extra');
 const { extractZip, getDirectoryTree } = require('../utils/fileUtils');
 const githubService = require('../services/githubService');
 const Logger = require('../utils/logger');
+const { collectTargets, removeDeployments } = require('../services/cleanupService');
 
 // @desc    Upload project as ZIP
 // @route   POST /api/projects/upload
@@ -135,6 +136,26 @@ exports.deleteProject = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Project not found' });
     }
 
+    // Take the live deployment(s) down first, so deleting a project really frees
+    // the site on Netlify / Vercel / Render (their free plans have limits).
+    // If one can't be removed we stop and say why - unless the user confirms
+    // with ?force=true, which deletes only the StackPilot record.
+    const force = req.query.force === 'true' || req.query.force === '1';
+    const targets = collectTargets(project);
+    let remote = [];
+    if (targets.length) {
+      remote = await removeDeployments(targets, req.user.tokens || {}, req.user.connections?.vercel?.teamId || null);
+      const failed = remote.filter(r => !r.ok);
+      if (failed.length && !force) {
+        return res.status(409).json({
+          success: false,
+          code: 'REMOTE_DELETE_FAILED',
+          message: 'Could not delete the live deployment: ' + failed.map(f => `${f.role !== 'app' ? '(' + f.role + ') ' : ''}${f.message}`).join('; '),
+          remote
+        });
+      }
+    }
+
     // Cleanup local files
     if (project.localPath) {
       await fs.remove(project.localPath).catch(() => {});
@@ -142,7 +163,7 @@ exports.deleteProject = async (req, res) => {
 
     await project.deleteOne();
 
-    res.json({ success: true, message: 'Project deleted successfully' });
+    res.json({ success: true, message: 'Project deleted successfully', remote });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

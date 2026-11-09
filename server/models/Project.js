@@ -62,7 +62,8 @@ const projectSchema = new mongoose.Schema({
     role: { type: String, enum: ['frontend', 'backend', 'app'] },
     platform: String,
     url: String,
-    dir: String
+    dir: String,
+    ref: String          // Netlify site id / Vercel project name / Render service id (used to delete it later)
   }],
   deploymentPlatform: {
     type: String,

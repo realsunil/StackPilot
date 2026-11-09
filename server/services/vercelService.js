@@ -217,6 +217,23 @@ class VercelService {
     };
     return map[type] || null;
   }
+
+  // Deletes a Vercel project (and all its deployments). 404 = already gone.
+  async deleteProject(projectName, token, teamId) {
+    if (!token) throw new Error('Vercel isn\'t connected, so the live project can\'t be deleted.');
+    const teamQuery = teamId ? `?teamId=${encodeURIComponent(teamId)}` : '';
+    try {
+      await axios.delete(`${this.baseUrl}/v9/projects/${encodeURIComponent(projectName)}${teamQuery}`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+        timeout: 30000
+      });
+      return { alreadyGone: false };
+    } catch (error) {
+      if (error.response?.status === 404) return { alreadyGone: true };
+      const msg = error.response?.data?.error?.message || error.message;
+      throw new Error(`Vercel: ${msg}`);
+    }
+  }
 }
 
 module.exports = new VercelService();

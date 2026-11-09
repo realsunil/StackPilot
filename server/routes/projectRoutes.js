@@ -19,7 +19,8 @@ router.post('/upload', protect, upload.single('project'), uploadProject);
 router.post('/github', protect, attachTokens, importFromGitHub);
 router.get('/', protect, getProjects);
 router.get('/:projectId', protect, getProject);
-router.delete('/:projectId', protect, deleteProject);
+// attachTokens: needed to also delete the live site on the user's own platform accounts.
+router.delete('/:projectId', protect, attachTokens, deleteProject);
 router.get('/:projectId/tree', protect, getProjectTree);
 
 module.exports = router;

@@ -3,65 +3,25 @@ import { connectSocket, disconnectSocket } from '../socket.js'
 import { toast } from '../main.js'
 
 let state = {
-  tab: 'upload',
+  tab: 'upload',          // where the project comes from: 'upload' (ZIP) or 'github' (link)
+  source: 'upload',       // same, but fixed at the moment the project was analysed
   file: null,
   githubUrl: '',
   name: '',
-  platform: 'auto',
-  status: 'idle',
+  status: 'idle',         // idle | analyzing | deploying | deployed | failed
   projectId: null,
   logs: [],
   deployedUrl: null,
-  analysis: null,
-  quickInfo: null,
-  stack: 'auto',          // what is being deployed: auto | frontend | backend | fullstack
-  useDb: false,           // attach the user's connected MongoDB
+  analysis: null,         // what we detected
+  prepared: false,        // project uploaded + analysed, ready to deploy
+  preparing: false,
+  useDb: false,           // attach the user's connected MongoDB (auto-set from the analysis)
   mongo: { loaded: false, connected: false, name: null },
   services: []            // what went live (a full-stack deploy has two)
 }
 
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 const cap = (v) => String(v || '').charAt(0).toUpperCase() + String(v || '').slice(1)
-
-const stacks = [
-  { id: 'auto', icon: '🤖', name: 'Auto-detect', desc: 'We figure it out' },
-  { id: 'frontend', icon: '🎨', name: 'Frontend', desc: 'React, Vue, static' },
-  { id: 'backend', icon: '⚙️', name: 'Backend', desc: 'Node, Python, Go' },
-  { id: 'fullstack', icon: '🧩', name: 'Full-stack', desc: 'Frontend + backend' }
-]
-
-const stackHint = () => {
-  const upload = state.tab === 'upload'
-  switch (state.stack) {
-    case 'frontend':
-      return 'Deploys only the frontend (the client/ folder, if your project has one).'
-    case 'backend':
-      return upload
-        ? '⚠️ Backends run on Render, which deploys from GitHub. Switch to the <b>GitHub Import</b> tab.'
-        : 'Deploys only the backend (the server/ folder, if your project has one) on Render.'
-    case 'fullstack':
-      return 'Backend goes to <b>Render</b> first, then the frontend to <b>Vercel</b>, built to call that backend. '
-        + 'Needs client/ + server/ folders (or a Next.js app).'
-        + (upload ? ' ⚠️ A client/ + server/ project needs the <b>GitHub Import</b> tab (a ZIP only works for Next.js).' : '')
-    default:
-      return 'We look inside your project. A client/ + server/ layout is deployed as full-stack automatically.'
-  }
-}
-
-// The platform that actually gets sent to the server for the chosen deploy type.
-const platformToSend = () => {
-  if (state.stack === 'backend') return 'render'
-  if (state.stack === 'fullstack') return 'auto'
-  if (state.stack === 'frontend' && state.platform === 'render') return 'auto'
-  return state.platform
-}
-
-const platforms = [
-  { id: 'auto', icon: '🤖', name: 'Auto', desc: 'Best match' },
-  { id: 'vercel', icon: '▲', name: 'Vercel', desc: 'Frontend' },
-  { id: 'netlify', icon: '◆', name: 'Netlify', desc: 'Static' },
-  { id: 'render', icon: '🟢', name: 'Render', desc: 'Backend' }
-]
 
 export const renderDeploy = () => {
   if (state.status !== 'idle') {
@@ -76,46 +36,34 @@ const renderDeployForm = () => {
   main.innerHTML = `
     <div class="page-header">
       <h2>Deploy Your Project</h2>
-      <p>Upload a ZIP or import from GitHub — we handle the rest</p>
+      <p>Drop a ZIP or paste a GitHub link — we detect what it is and pick the platform for you</p>
     </div>
 
     <div class="deploy-box">
+      <div class="input-grp">
+        <label>Project Name (optional — set it before you drop the project)</label>
+        <input class="inp" id="projName" placeholder="my-awesome-project" value="${esc(state.name)}">
+      </div>
+
       <div class="tabs">
         <button class="tab ${state.tab==='upload'?'active':''}" id="tabUpload">📦 Upload ZIP</button>
-        <button class="tab ${state.tab==='github'?'active':''}" id="tabGithub">🐙 GitHub Import</button>
+        <button class="tab ${state.tab==='github'?'active':''}" id="tabGithub">🐙 GitHub Link</button>
       </div>
 
       <div id="tabContent">${state.tab==='upload' ? uploadUI() : githubUI()}</div>
 
-      <div class="input-grp" style="margin-top:20px">
-        <label>Project Name (optional)</label>
-        <input class="inp" id="projName" placeholder="my-awesome-project" value="${state.name}">
-      </div>
+      ${state.preparing ? `
+        <div class="loading-state" style="margin-top:18px">
+          <div class="spinner"></div>
+          <h3>Analyzing your project…</h3>
+          <p>Detecting frontend, backend and database</p>
+        </div>` : ''}
+      ${state.prepared ? detectCard() : ''}
 
-      <div style="margin-bottom:14px">
-        <label style="font-size:0.88rem;font-weight:600;color:var(--text2);display:block;margin-bottom:10px">
-          What are you deploying?
-        </label>
-        <div class="platform-grid" id="stackGrid">
-          ${stacks.map(x => `
-            <div class="plat ${state.stack===x.id?'selected':''}" data-stack="${x.id}" role="button" tabindex="0">
-              <div class="plat-icon">${x.icon}</div>
-              <div class="plat-name">${x.name}</div>
-              <div class="plat-desc">${x.desc}</div>
-            </div>
-          `).join('')}
-        </div>
-        <p id="stackHint" style="color:var(--text2);font-size:0.82rem;margin-top:-4px">${stackHint()}</p>
-      </div>
-
-      ${dbCard()}
-
-      ${platformSection()}
-
-      <button class="btn btn-primary btn-full" id="deployBtn" 
-        style="padding:17px;font-size:1rem" 
+      <button class="btn btn-primary btn-full" id="deployBtn"
+        style="padding:17px;font-size:1rem;margin-top:18px"
         ${isDeployDisabled() ? 'disabled' : ''}>
-         Deploy Now
+        🚀 Deploy
       </button>
     </div>
   `
@@ -123,67 +71,115 @@ const renderDeployForm = () => {
   if (!state.mongo.loaded) loadMongoStatus()
 }
 
-const dbCard = () => {
-  const m = state.mongo
-  const blocked = state.stack === 'frontend'
-  const disabled = !m.connected || blocked
-  const checked = state.useDb && !disabled
-  let sub
-  if (!m.loaded) sub = 'Checking your MongoDB connection…'
-  else if (!m.connected) sub = 'MongoDB isn\'t connected yet. <a href="/dashboard" data-link>Connect it in your Dashboard →</a>'
-  else if (blocked) sub = 'Not available for frontend-only deploys: a database password must never end up in browser code.'
-  else if (checked) sub = `Using <b>${esc(m.name || 'your MongoDB')}</b>. It is passed to your backend as <code>MONGODB_URI</code> (also <code>MONGO_URI</code> and <code>DATABASE_URL</code>). In Atlas → Network Access, allow 0.0.0.0/0.`
-  else sub = `Pass your connected MongoDB${m.name ? ' (' + esc(m.name) + ')' : ''} to the deployed backend.`
+// ---- what the analysis tells us -------------------------------------------
+const bothSides = (a) => !!(a.layout && a.layout.frontendDir && a.layout.backendDir)
 
-  return `
-    <label id="dbCard" style="display:flex;gap:12px;align-items:flex-start;padding:14px 16px;margin-bottom:18px;background:var(--card);border:1px solid ${checked ? 'var(--accent-hover)' : 'var(--border)'};border-radius:var(--r);${disabled ? 'opacity:0.75;' : 'cursor:pointer;'}">
-      <input type="checkbox" id="useDb" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''} style="margin-top:4px;width:17px;height:17px;accent-color:var(--accent);flex-shrink:0">
-      <div style="min-width:0">
-        <div style="font-weight:600;font-size:0.92rem">🗄️ Database <span style="font-weight:400;color:var(--muted);font-size:0.8rem">· MongoDB</span></div>
-        <div style="color:var(--text2);font-size:0.82rem;margin-top:3px;line-height:1.5">${sub}</div>
-      </div>
-    </label>
-  `
+// frontend | backend | fullstack
+const kindOf = (a) => {
+  if (bothSides(a) || a.category === 'fullstack') return 'fullstack'
+  if (a.category === 'backend') return 'backend'
+  return 'frontend'
+}
+const KINDS = {
+  frontend:  ['🎨', 'Frontend'],
+  backend:   ['⚙️', 'Backend'],
+  fullstack: ['🧩', 'Full-stack (frontend + backend)']
 }
 
-// Backends always run on Render and full-stack uses Vercel + Render, so the
-// platform picker only makes sense for "Auto-detect" and "Frontend".
-const platformSection = () => {
-  if (state.stack === 'backend') {
-    return `<div class="quick-info" style="margin-bottom:18px"><h4>Platform</h4><p style="font-size:0.9rem">🟢 <b>Render</b> — backends are deployed on Render.</p></div>`
+// Mirrors the server's automatic choice: backends -> Render, frontends -> the
+// platform that fits them (Vercel for apps that need a build, Netlify for plain static).
+const targetText = (a) => {
+  if (bothSides(a)) return '⚙️ Backend → 🟢 Render · 🎨 Frontend → ▲ Vercel'
+  if (kindOf(a) === 'backend') return '🟢 Render'
+  return a.recommendedPlatform === 'netlify' ? '◆ Netlify' : '▲ Vercel'
+}
+
+// A backend (own server, or a client/+server/ project) runs on Render, and
+// Render can only deploy from GitHub - so a ZIP can't be used for those.
+const deployBlocker = () => {
+  if (!state.prepared || !state.analysis) return 'Drop a ZIP or paste a GitHub link first.'
+  const a = state.analysis
+  const needsRender = bothSides(a) || a.category === 'backend'
+  if (needsRender && state.source === 'upload') {
+    return 'The backend runs on Render, which deploys from GitHub. Push this project to GitHub and paste the link instead of uploading a ZIP.'
   }
-  if (state.stack === 'fullstack') {
-    return `<div class="quick-info" style="margin-bottom:18px"><h4>Platforms</h4><p style="font-size:0.9rem">⚙️ Backend → 🟢 <b>Render</b> &nbsp;·&nbsp; 🎨 Frontend → ▲ <b>Vercel</b></p></div>`
+  return null
+}
+
+const detectCard = () => {
+  const a = state.analysis
+  const kind = kindOf(a)
+  const [icon, label] = KINDS[kind]
+  const blocker = deployBlocker()
+  const hasBackend = kind !== 'frontend'
+  const m = state.mongo
+  const detected = !!a.usesMongo
+
+  let dbRow
+  if (!hasBackend) {
+    dbRow = `
+      <div class="a-item" style="grid-column:span 3">
+        <div class="a-label">Database</div>
+        <div class="a-val" style="font-size:0.85rem">🗄️ Not needed — this is a frontend project.</div>
+      </div>`
+  } else {
+    const disabled = !m.connected
+    const checked = state.useDb && !disabled
+    let sub
+    if (!m.loaded) sub = 'Checking your MongoDB connection…'
+    else if (!m.connected) sub = `${detected ? 'Your code uses MongoDB. ' : ''}MongoDB isn't connected yet. <a href="/dashboard" data-link>Connect it in your Dashboard →</a>`
+    else if (checked) sub = `Your connected MongoDB${m.name ? ' (' + esc(m.name) + ')' : ''} is passed to the backend as <code>MONGODB_URI</code> (also <code>MONGO_URI</code>, <code>DATABASE_URL</code>). In Atlas → Network Access, allow 0.0.0.0/0.`
+    else sub = detected ? 'Your code uses MongoDB, but the database is turned off.' : 'Turn this on to pass your MongoDB to the backend anyway.'
+
+    dbRow = `
+      <label id="dbCard" class="a-item" style="grid-column:span 3;display:flex;gap:12px;align-items:flex-start;${disabled ? 'opacity:0.8;' : 'cursor:pointer;'}">
+        <input type="checkbox" id="useDb" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''} style="margin-top:4px;width:17px;height:17px;accent-color:var(--accent);flex-shrink:0">
+        <div style="min-width:0">
+          <div class="a-label" style="margin-bottom:2px">Database · ${detected ? 'MongoDB detected in your code' : 'none detected'}</div>
+          <div style="color:var(--text2);font-size:0.82rem;line-height:1.5">${sub}</div>
+        </div>
+      </label>`
   }
-  const list = state.stack === 'frontend' ? platforms.filter(p => p.id !== 'render') : platforms
+
   return `
-    <div style="margin-bottom:18px">
-      <label style="font-size:0.88rem;font-weight:600;color:var(--text2);display:block;margin-bottom:10px">
-        Deployment Platform
-      </label>
-      <div class="platform-grid">
-        ${list.map(p => `
-          <div class="plat ${state.platform===p.id?'selected':''}" data-plat="${p.id}">
-            <div class="plat-icon">${p.icon}</div>
-            <div class="plat-name">${p.name}</div>
-            <div class="plat-desc">${p.desc}</div>
-          </div>
-        `).join('')}
+    <div class="analysis-card" id="detectCard" style="margin-top:18px">
+      <h4>✨ Detected automatically</h4>
+      <div class="analysis-grid">
+        <div class="a-item"><div class="a-label">Type</div><div class="a-val c-green">${icon} ${label}</div></div>
+        <div class="a-item"><div class="a-label">Framework</div><div class="a-val c-blue">${esc(a.framework || a.detectedType)}</div></div>
+        <div class="a-item"><div class="a-label">Will deploy to</div><div class="a-val c-orange" style="font-size:0.85rem">${targetText(a)}</div></div>
+        ${a.layout ? `
+          <div class="a-item" style="grid-column:span 3">
+            <div class="a-label">Project layout</div>
+            <div class="a-val" style="font-size:0.85rem">
+              ${a.layout.frontendDir ? `🎨 Frontend: <b>${esc(a.layout.frontendDir)}/</b> (${esc(a.layout.frontendFramework)})` : ''}
+              ${a.layout.frontendDir && a.layout.backendDir ? ' &nbsp;·&nbsp; ' : ''}
+              ${a.layout.backendDir ? `⚙️ Backend: <b>${esc(a.layout.backendDir)}/</b> (${esc(a.layout.backendFramework)})` : ''}
+            </div>
+          </div>` : ''}
+        ${dbRow}
       </div>
+      ${blocker ? `<p style="margin-top:14px;color:var(--amber);font-size:0.86rem">⚠️ ${blocker}</p>` : ''}
     </div>
   `
 }
 
-const loadMongoStatus = async () => {
-  state.mongo.loaded = true
-  try {
-    const r = await api.getConnections()
-    const m = r.data?.mongodb
-    state.mongo = { loaded: true, connected: !!m?.connected, name: m?.accountName || null }
-  } catch (_) {
-    state.mongo = { loaded: true, connected: false, name: null }
+// Asked once and remembered, so "is MongoDB connected?" is known before we decide.
+let mongoPromise = null
+const loadMongoStatus = () => {
+  if (!mongoPromise) {
+    mongoPromise = (async () => {
+      try {
+        const r = await api.getConnections()
+        const m = r.data?.mongodb
+        state.mongo = { loaded: true, connected: !!m?.connected, name: m?.accountName || null }
+      } catch (_) {
+        state.mongo = { loaded: true, connected: false, name: null }
+      }
+      if (state.status === 'idle' && !state.preparing && document.getElementById('tabContent')) renderDeployForm()
+    })()
   }
-  if (state.status === 'idle' && document.getElementById('dbCard')) renderDeployForm()
+  return mongoPromise
 }
 
 const uploadUI = () => `
@@ -202,38 +198,16 @@ const uploadUI = () => `
 
 const githubUI = () => `
   <div class="github-box">
-    <div class="input-grp">
-      <label>🐙 GitHub Repository URL</label>
+    <div class="input-grp" style="margin-bottom:0">
+      <label>🐙 GitHub Repository Link</label>
       <div class="inp-row">
-        <input class="inp" id="ghUrl" placeholder="https://github.com/username/repo" 
-          value="${state.githubUrl}">
-        <button class="btn btn-secondary" id="scanBtn">🔍 Scan</button>
+        <input class="inp" id="ghUrl" placeholder="https://github.com/username/repo"
+          value="${esc(state.githubUrl)}">
+        <button class="btn btn-secondary" id="scanBtn" ${state.preparing ? 'disabled' : ''}>🔍 Detect</button>
       </div>
     </div>
-    ${state.quickInfo ? quickInfoUI() : ''}
   </div>
 `
-
-const quickInfoUI = () => {
-  const q = state.quickInfo
-  return `
-    <div class="quick-info">
-      <h4>📋 ${q.repoName} by ${q.owner}</h4>
-      <div class="qi-grid">
-        <div class="qi-item"><div class="qi-label">Language</div>
-          <div class="qi-val blue">${q.language || 'Unknown'}</div></div>
-        <div class="qi-item"><div class="qi-label">Stars</div>
-          <div class="qi-val">${q.stars || 0} ⭐</div></div>
-        ${q.suggestions?.type ? `
-          <div class="qi-item"><div class="qi-label">Detected</div>
-            <div class="qi-val green">${q.suggestions.type}</div></div>
-          <div class="qi-item"><div class="qi-label">Platform</div>
-            <div class="qi-val orange">${q.suggestions.platform}</div></div>
-        ` : ''}
-      </div>
-    </div>
-  `
-}
 
 const renderDeployStatus = () => {
   const main = document.getElementById('main')
@@ -267,10 +241,10 @@ const renderDeployStatus = () => {
   document.getElementById('newDeployBtn')?.addEventListener('click', () => {
     disconnectSocket()
     state = {
-      tab: 'upload', file: null, githubUrl: '', name: '', platform: 'auto',
+      tab: 'upload', file: null, githubUrl: '', name: '', source: 'upload',
       status: 'idle', projectId: null, logs: [], deployedUrl: null,
-      analysis: null, quickInfo: null,
-      stack: 'auto', useDb: false, mongo: state.mongo, services: []
+      analysis: null, prepared: false, preparing: false,
+      useDb: false, mongo: state.mongo, services: []
     }
     renderDeployForm()
   })
@@ -349,7 +323,7 @@ const statusCard = () => {
     return `
       <div class="live-card">
         <h3>🎉 Deployment Successful!</h3>
-        <p>Your project is live on ${esc(state.platform || 'cloud')}</p>
+        <p>Your project is live on ${esc(cap(state.services[0]?.platform || 'the cloud'))}</p>
         <div class="live-url" data-url="${esc(state.deployedUrl)}" title="Click to copy">
           ${esc(state.deployedUrl)} 📋
         </div>
@@ -381,7 +355,7 @@ const statusCard = () => {
     return `
       <div class="loading-state">
         <div class="spinner" style="border-top-color:var(--blue)"></div>
-        <h3>${state.stack === 'fullstack' ? 'Deploying backend, then frontend...' : `Deploying to ${esc(state.stack === 'backend' ? 'render' : (state.platform === 'auto' ? 'the best platform' : state.platform) || 'cloud')}...`}</h3>
+        <h3>${state.analysis && bothSides(state.analysis) ? 'Deploying backend, then frontend...' : 'Deploying your project...'}</h3>
         <p>This may take a few minutes. Watch the live logs below.</p>
       </div>
     `
@@ -406,36 +380,27 @@ const logsUI = () => `
   </div>
 `
 
+const resetPrepared = () => {
+  state.prepared = false
+  state.preparing = false
+  state.projectId = null
+  state.analysis = null
+  state.useDb = false
+}
+
+const GITHUB_RE = /^https?:\/\/github\.com\/[^/\s]+\/[^/\s]+/i
+
 const attachFormEvents = () => {
   document.getElementById('tabUpload')?.addEventListener('click', () => {
-    state.tab = 'upload'
+    if (state.tab !== 'upload') { state.tab = 'upload'; resetPrepared() }
     renderDeployForm()
   })
   document.getElementById('tabGithub')?.addEventListener('click', () => {
-    state.tab = 'github'
+    if (state.tab !== 'github') { state.tab = 'github'; resetPrepared() }
     renderDeployForm()
   })
 
-  document.querySelectorAll('.plat[data-plat]').forEach(el => {
-    el.addEventListener('click', () => {
-      state.platform = el.dataset.plat
-      document.querySelectorAll('.plat[data-plat]').forEach(p => p.classList.remove('selected'))
-      el.classList.add('selected')
-    })
-  })
-
-  // "What are you deploying?" cards
-  const pickStack = (id) => {
-    state.stack = id
-    if (id === 'frontend' && state.platform === 'render') state.platform = 'auto'
-    if (id === 'frontend') state.useDb = false   // a frontend can never hold DB credentials
-    renderDeployForm()
-  }
-  document.querySelectorAll('.plat[data-stack]').forEach(el => {
-    el.addEventListener('click', () => pickStack(el.dataset.stack))
-    el.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickStack(el.dataset.stack) } })
-  })
-
+  // Database switch (only exists when a backend was detected)
   document.getElementById('useDb')?.addEventListener('change', (e) => {
     state.useDb = e.target.checked
     renderDeployForm()
@@ -446,7 +411,6 @@ const attachFormEvents = () => {
     const fileInput = document.getElementById('fileInput')
 
     dropZone?.addEventListener('click', () => fileInput?.click())
-
     dropZone?.addEventListener('dragover', (e) => {
       e.preventDefault()
       dropZone.classList.add('dragover')
@@ -458,21 +422,32 @@ const attachFormEvents = () => {
       const f = e.dataTransfer.files[0]
       if (f) handleFileSelect(f)
     })
-
     fileInput?.addEventListener('change', (e) => {
       if (e.target.files[0]) handleFileSelect(e.target.files[0])
     })
+  } else {
+    const gh = document.getElementById('ghUrl')
+    gh?.addEventListener('input', (e) => {
+      state.githubUrl = e.target.value
+      // the link changed, so the earlier detection no longer applies
+      if (state.prepared) {
+        resetPrepared()
+        document.getElementById('detectCard')?.remove()
+        updateDeployBtn()
+      }
+    })
+    gh?.addEventListener('paste', () => {
+      setTimeout(() => {
+        state.githubUrl = gh.value.trim()
+        if (GITHUB_RE.test(state.githubUrl)) prepare()
+      }, 0)
+    })
+    gh?.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); prepare() } })
+    document.getElementById('scanBtn')?.addEventListener('click', prepare)
   }
-
-  document.getElementById('ghUrl')?.addEventListener('input', (e) => {
-    state.githubUrl = e.target.value
-    updateDeployBtn()
-  })
-  document.getElementById('scanBtn')?.addEventListener('click', handleQuickAnalyze)
 
   document.getElementById('projName')?.addEventListener('input', (e) => {
     state.name = e.target.value
-    updateDeployBtn()
   })
 
   document.getElementById('deployBtn')?.addEventListener('click', handleDeploy)
@@ -480,108 +455,76 @@ const attachFormEvents = () => {
 
 const handleFileSelect = (file) => {
   state.file = file
-  document.getElementById('tabContent').innerHTML = uploadUI()
-
-  const dropZone = document.getElementById('dropZone')
-  const fileInput = document.getElementById('fileInput')
-  dropZone?.addEventListener('click', () => fileInput?.click())
-  fileInput?.addEventListener('change', (e) => {
-    if (e.target.files[0]) handleFileSelect(e.target.files[0])
-  })
-
-  updateDeployBtn()
+  prepare()
 }
 
-const handleQuickAnalyze = async () => {
-  const url = document.getElementById('ghUrl')?.value?.trim()
-  if (!url) { toast.error('Enter a GitHub URL first'); return }
-  state.githubUrl = url
+// Step 1: as soon as a ZIP is dropped / a link is pasted, upload (or clone) it
+// and analyse it, so we can show what it is BEFORE anything is deployed.
+const prepare = async () => {
+  if (state.preparing) return
+  const src = state.tab
 
-  const btn = document.getElementById('scanBtn')
-  if (btn) { btn.textContent = '⏳'; btn.disabled = true }
+  if (src === 'upload' && !state.file) { toast.error('Select a ZIP first'); return }
+  if (src === 'github') {
+    const url = (document.getElementById('ghUrl')?.value || state.githubUrl || '').trim()
+    if (!GITHUB_RE.test(url)) { toast.error('Paste a valid GitHub repository link'); return }
+    state.githubUrl = url
+  }
+
+  state.name = document.getElementById('projName')?.value?.trim() || state.name
+  resetPrepared()
+  state.preparing = true
+  state.source = src
+  renderDeployForm()
 
   try {
-    const res = await api.quickAnalyze(url)
-    state.quickInfo = res.data
-    document.getElementById('tabContent').innerHTML = githubUI()
-    attachGithubEvents()
-    toast.success('Repository scanned!')
+    let data
+    if (src === 'upload') {
+      const fd = new FormData()
+      fd.append('project', state.file)
+      fd.append('name', state.name || state.file.name.replace(/\.(zip|tar\.gz)$/, ''))
+      fd.append('platform', 'auto')
+      data = (await api.uploadProject(fd)).data
+    } else {
+      data = (await api.importGitHub({
+        githubUrl: state.githubUrl,
+        name: state.name || undefined,
+        platform: 'auto'
+      })).data
+    }
+    state.projectId = data.projectId
+    state.name = data.name
+
+    state.analysis = (await api.analyzeProject(state.projectId)).data
+
+    // Is the user's MongoDB connected? Needed to decide the database automatically.
+    await loadMongoStatus()
+    // Automatic: attach the database when the code uses MongoDB and a backend exists.
+    state.useDb = !!(kindOf(state.analysis) !== 'frontend' && state.analysis.usesMongo && state.mongo.connected)
+    state.prepared = true
   } catch (err) {
-    toast.error(err.message || 'Scan failed')
+    toast.error(err.message || 'Could not analyze this project')
   } finally {
-    const btn2 = document.getElementById('scanBtn')
-    if (btn2) { btn2.textContent = '🔍 Scan'; btn2.disabled = false }
+    state.preparing = false
+    if (state.status === 'idle') renderDeployForm()
   }
 }
 
-const attachGithubEvents = () => {
-  document.getElementById('ghUrl')?.addEventListener('input', (e) => {
-    state.githubUrl = e.target.value
-    updateDeployBtn()
-  })
-  document.getElementById('scanBtn')?.addEventListener('click', handleQuickAnalyze)
-}
-
+// Step 2: deploy. Type and platform are chosen automatically on the server.
 const handleDeploy = async () => {
-  // Check the choices BEFORE uploading anything, so a bad combination is
-  // explained right here instead of failing after the upload.
-  if (state.stack === 'backend' && state.tab === 'upload') {
-    toast.error('Backends run on Render, which deploys from GitHub. Use the GitHub Import tab.')
-    return
-  }
-  if (state.useDb && state.stack === 'frontend') {
-    toast.error('A database can\'t be attached to a frontend-only deploy.')
-    return
-  }
+  if (!state.prepared || !state.projectId) return
+  const blocker = deployBlocker()
+  if (blocker) { toast.error(blocker); return }
   if (state.useDb && !state.mongo.connected) {
-    toast.error('Connect MongoDB in your Dashboard first, or turn the database option off.')
+    toast.error('Connect MongoDB in your Dashboard first, or turn the database off.')
     return
   }
 
   const btn = document.getElementById('deployBtn')
-  if (btn) { btn.innerHTML = '<span class="spinner spinner-sm spin"></span> Processing...'; btn.disabled = true }
+  if (btn) { btn.innerHTML = '<span class="spinner spinner-sm spin"></span> Starting...'; btn.disabled = true }
 
-  state.name = document.getElementById('projName')?.value?.trim() || state.name
-
-  let t1, t2, t3
+  let t3
   try {
-    let projectData
-
-    if (state.tab === 'upload') {
-      if (!state.file) { toast.error('Select a file first'); return }
-      t1 = toast.loading('Uploading project...')
-      const fd = new FormData()
-      fd.append('project', state.file)
-      fd.append('name', state.name || state.file.name.replace(/\.(zip|tar\.gz)$/, ''))
-      fd.append('platform', platformToSend())
-      const r = await api.uploadProject(fd)
-      t1.dismiss()
-      projectData = r.data
-      toast.success('Project uploaded!')
-    } else {
-      if (!state.githubUrl) { toast.error('Enter GitHub URL'); return }
-      t1 = toast.loading('Cloning repository...')
-      const r = await api.importGitHub({
-        githubUrl: state.githubUrl,
-        name: state.name || undefined,
-        platform: platformToSend()
-      })
-      t1.dismiss()
-      projectData = r.data
-      toast.success('Repository cloned!')
-    }
-
-    state.projectId = projectData.projectId
-    state.name = projectData.name
-
-    state.status = 'analyzing'
-    renderDeployStatus()
-    t2 = toast.loading('Analyzing...')
-    const analysisRes = await api.analyzeProject(state.projectId)
-    state.analysis = analysisRes.data
-    t2.dismiss()
-    toast.success('Analysis complete!')
-
     connectSocket(
       state.projectId,
       (log) => {
@@ -605,11 +548,10 @@ const handleDeploy = async () => {
     state.status = 'deploying'
     renderDeployStatus()
     t3 = toast.loading('Deploying...')
-    await api.startDeploy(state.projectId, platformToSend(), { stack: state.stack, useDatabase: state.useDb })
+    await api.startDeploy(state.projectId, 'auto', { stack: 'auto', useDatabase: state.useDb })
     t3.dismiss()
-
   } catch (err) {
-    t1?.dismiss(); t2?.dismiss(); t3?.dismiss()
+    t3?.dismiss()
     toast.error(err.message || 'Something went wrong')
     state.status = 'failed'
     renderDeployStatus()
@@ -641,10 +583,7 @@ const updateDeployBtn = () => {
   if (btn) btn.disabled = isDeployDisabled()
 }
 
-const isDeployDisabled = () => {
-  if (state.tab === 'upload') return !state.file
-  return !state.githubUrl.trim()
-}
+const isDeployDisabled = () => state.preparing || !!deployBlocker()
 
 const formatSize = (b) => {
   if (b < 1024) return b + ' B'

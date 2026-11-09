@@ -74,7 +74,7 @@ export const api = {
   importGitHub: (data) => req('POST', '/projects/github', data),
   getProjects: () => req('GET', '/projects'),
   getProject: (projectId) => req('GET', `/projects/${projectId}`),
-  deleteProject: (projectId) => req('DELETE', `/projects/${projectId}`),
+  deleteProject: (projectId, force = false) => req('DELETE', `/projects/${projectId}${force ? '?force=true' : ''}`),
   getProjectTree: (projectId) => req('GET', `/projects/${projectId}/tree`),
 
   // Deploy

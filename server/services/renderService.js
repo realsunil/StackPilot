@@ -94,6 +94,22 @@ class RenderService {
       default: return 'node';
     }
   }
+
+  // Deletes a Render service. 404 = already gone.
+  async deleteService(serviceId, apiKey) {
+    if (!apiKey) throw new Error('Render isn\'t connected, so the live service can\'t be deleted.');
+    try {
+      await axios.delete(`${this.baseUrl}/services/${encodeURIComponent(serviceId)}`, {
+        headers: { 'Authorization': `Bearer ${apiKey}` },
+        timeout: 30000
+      });
+      return { alreadyGone: false };
+    } catch (error) {
+      if (error.response?.status === 404) return { alreadyGone: true };
+      const msg = error.response?.data?.message || error.message;
+      throw new Error(`Render: ${msg}`);
+    }
+  }
 }
 
 module.exports = new RenderService();

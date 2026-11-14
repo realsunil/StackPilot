@@ -76,7 +76,7 @@ class DeploymentEngine {
     }
   }
 
-  // Whole deploy is capped at 8 minutes total. Without this, a hang in ANY
+  // Whole deploy is capped at 15 minutes total. Without this, a hang in ANY
   // single awaited step (network call, DB write, third-party API) could
   // freeze the UI at "deploying..." forever with no error ever surfacing.
   async runDeployment(project, userTokens, logger) {
@@ -85,8 +85,8 @@ class DeploymentEngine {
       (async () => { result = await this.doDeploy(project, userTokens, logger); })(),
       new Promise((_, reject) =>
         setTimeout(() => reject(new Error(
-          'Deployment timed out after 8 minutes - the platform may still finish it in the background, but StackPilot stopped waiting.'
-        )), 8 * 60 * 1000)
+          'Deployment timed out after 15 minutes - the platform may still finish it in the background, but StackPilot stopped waiting.'
+        )), 15 * 60 * 1000)
       )
     ]);
     return result;

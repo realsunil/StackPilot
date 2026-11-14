@@ -35,6 +35,7 @@ class VercelService {
       const deployPayload = {
         name: projectName.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
         files: files,
+        target: 'production',
         projectSettings: {
           framework: this.getVercelFramework(analysis.detectedType),
         }
@@ -79,10 +80,13 @@ class VercelService {
       await logger.success(`🌐 URL: ${deploymentUrl}`);
 
       // Step 3: Wait for deployment to be ready
-      await this.waitForDeployment(response.data.id, token, logger, teamId);
+      const finalUrl = await this.waitForDeployment(response.data.id, token, logger, teamId) || deploymentUrl;
+
+      // New projects get "Deployment Protection" (login wall) - turn it off so the live URL opens for everyone.
+      await this.makePublic(deployPayload.name, token, teamQuery, logger);
 
       return {
-        url: deploymentUrl,
+        url: finalUrl,
         deploymentId: response.data.id,
         // The Vercel PROJECT name (not the per-deploy hostname) - this is
         // what /v10/projects/{name}/domains needs to attach a custom
@@ -104,7 +108,7 @@ class VercelService {
     const items = await fs.readdir(dirPath);
 
     for (const item of items) {
-      if (['node_modules', '.git', '.next', '__pycache__', 'venv', '.venv', '.env'].includes(item)) continue;
+      if (['node_modules', '.git', '.next', '__pycache__', 'venv', '.venv', '.env', 'dist', '.DS_Store'].includes(item)) continue;
 
       const fullPath = path.join(dirPath, item);
       const stat = await fs.stat(fullPath);
@@ -116,7 +120,7 @@ class VercelService {
         const relativePath = path.relative(basePath, fullPath);
         const content = await fs.readFile(fullPath);
         files.push({
-          file: relativePath,
+          file: relativePath.split(path.sep).join('/'),
           data: content.toString('base64'),
           encoding: 'base64'
         });
@@ -149,7 +153,10 @@ class VercelService {
 
         if (state === 'READY') {
           await logger.success('🎉 Deployment is live!');
-          return;
+          // Prefer the stable production alias (project.vercel.app) over the per-deploy URL
+          const aliases = response.data.alias || [];
+          const best = aliases.find(a => a.endsWith('.vercel.app') && !/-[a-z0-9]{9,}-/.test(a)) || aliases[0];
+          return best ? `https://${best}` : null;
         }
         if (state === 'ERROR' || state === 'CANCELED') {
           throw new Error(`Deployment ${state === 'CANCELED' ? 'was canceled' : 'failed'} on Vercel`);
@@ -164,6 +171,18 @@ class VercelService {
     }
 
     await logger.warning('⚠️ Vercel is still building after 3+ minutes - it will likely finish shortly; check the deployment URL directly.');
+  }
+
+  async makePublic(projectName, token, teamQuery, logger) {
+    try {
+      await axios.patch(
+        `${this.baseUrl}/v9/projects/${encodeURIComponent(projectName)}${teamQuery}`,
+        { ssoProtection: null },
+        { headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }, timeout: 15000 }
+      );
+    } catch (e) {
+      await logger.warning('⚠️ Could not turn off Vercel Deployment Protection. If the URL asks you to log in, disable it in Vercel → Project → Settings → Deployment Protection.');
+    }
   }
 
   // Attaches a custom domain (e.g. "www.mystartup.com") to an already-

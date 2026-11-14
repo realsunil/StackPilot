@@ -9,6 +9,9 @@ const extractZip = async (zipPath, extractTo) => {
     zip.extractAllTo(extractTo, true);
 
     // Check if extracted into a single subfolder (common with GitHub zips)
+    // macOS zips add __MACOSX / .DS_Store next to the real folder - drop them
+    await fs.remove(path.join(extractTo, '__MACOSX')).catch(() => {});
+    await fs.remove(path.join(extractTo, '.DS_Store')).catch(() => {});
     const items = await fs.readdir(extractTo);
     if (items.length === 1) {
       const singleDir = path.join(extractTo, items[0]);
